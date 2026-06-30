@@ -3,20 +3,9 @@ import { useState, useEffect, useCallback } from 'react';
 import LineChart from '../../components/LineChart';
 import api from '../../lib/api';
 
-type Metric = 'cpu' | 'ram' | 'disk' | 'load' | 'net_rx' | 'net_tx' | 'temperature';
 type Range = '1h' | '6h' | '24h' | '7d';
 
 interface Point { ts: string; value: number | null; }
-
-const METRICS: { value: Metric; label: string; unit: string; color: string }[] = [
-  { value: 'cpu', label: 'CPU', unit: '%', color: 'var(--accent)' },
-  { value: 'ram', label: 'Memória RAM', unit: '%', color: 'var(--info)' },
-  { value: 'disk', label: 'Disco', unit: '%', color: 'var(--warning)' },
-  { value: 'load', label: 'Load Average (1m)', unit: '', color: 'var(--success)' },
-  { value: 'net_rx', label: 'Rede — Recebido', unit: ' B/s', color: 'var(--success)' },
-  { value: 'net_tx', label: 'Rede — Enviado', unit: ' B/s', color: 'var(--warning)' },
-  { value: 'temperature', label: 'Temperatura', unit: '°C', color: 'var(--danger)' },
-];
 
 const RANGES: { value: Range; label: string }[] = [
   { value: '1h', label: '1 hora' },
@@ -26,7 +15,6 @@ const RANGES: { value: Range; label: string }[] = [
 ];
 
 export default function HistoricoPage() {
-  const [metric, setMetric] = useState<Metric>('cpu');
   const [range, setRange] = useState<Range>('1h');
   const [data, setData] = useState<Point[]>([]);
   const [loading, setLoading] = useState(false);
@@ -44,61 +32,42 @@ export default function HistoricoPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const selected = METRICS.find((m) => m.value === metric)!;
   const values = data.map((d) => d.value).filter((v): v is number => v !== null);
   const max = values.length ? Math.max(...values) : null;
   const min = values.length ? Math.min(...values) : null;
   const avg = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
-  const fmt = (v: number | null) => v != null ? `${v.toFixed(1)}${selected.unit}` : '—';
+  const fmt = (v: number | null) => v != null ? `${v.toFixed(1)}%` : '—';
 
   return (
     <div>
       <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 24 }}>Histórico</h1>
 
-      {/* Seletores */}
-      <div style={{ display: 'flex', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
-        <div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6, textTransform: 'uppercase' }}>Métrica</div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {METRICS.map((m) => (
-              <button key={m.value} onClick={() => setMetric(m.value)} style={{
-                padding: '6px 14px', borderRadius: 6, border: '1px solid var(--border)',
-                background: metric === m.value ? 'var(--border)' : 'transparent',
-                color: metric === m.value ? 'var(--text)' : 'var(--muted)',
-                cursor: 'pointer', fontSize: 12,
-              }}>
-                {m.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6, textTransform: 'uppercase' }}>Período</div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {RANGES.map((r) => (
-              <button key={r.value} onClick={() => setRange(r.value)} style={{
-                padding: '6px 14px', borderRadius: 6, border: '1px solid var(--border)',
-                background: range === r.value ? 'var(--accent)' : 'transparent',
-                color: range === r.value ? '#000' : 'var(--muted)',
-                fontWeight: range === r.value ? 700 : 400,
-                cursor: 'pointer', fontSize: 12,
-              }}>
-                {r.label}
-              </button>
-            ))}
-          </div>
+      {/* Seletor de Período */}
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6, textTransform: 'uppercase' }}>Período</div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {RANGES.map((r) => (
+            <button key={r.value} onClick={() => setRange(r.value)} style={{
+              padding: '6px 14px', borderRadius: 6, border: '1px solid var(--border)',
+              background: range === r.value ? 'var(--accent)' : 'transparent',
+              color: range === r.value ? '#000' : 'var(--muted)',
+              fontWeight: range === r.value ? 700 : 400,
+              cursor: 'pointer', fontSize: 12,
+            }}>
+              {r.label}
+            </button>
+          ))}
         </div>
       </div>
 
       {/* Gráfico */}
       <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12, padding: 24, marginBottom: 16 }}>
         <div style={{ fontWeight: 600, marginBottom: 16 }}>
-          {selected.label}
+          CPU (%) — Histórico
           {loading && <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 10 }}>Carregando...</span>}
         </div>
         {data.length > 0 ? (
-          <LineChart data={data} color={selected.color} unit={selected.unit} height={300} />
+          <LineChart data={data} color="var(--accent)" unit="%" height={300} />
         ) : (
           <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)' }}>
             {loading ? 'Carregando dados...' : 'Sem dados para o período selecionado'}
