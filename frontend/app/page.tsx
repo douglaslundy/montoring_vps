@@ -12,13 +12,16 @@ interface Point { ts: string; value: number | null; }
 function wsUrl() {
   if (typeof window === 'undefined') return '';
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  return `${proto}://${window.location.host}/ws/metrics`;
+  const token = localStorage.getItem('vps_token') || '';
+  return `${proto}://${window.location.host}/ws/metrics?token=${token}`;
 }
 
 const MAX_POINTS = 120; // 1h @ 30s
 
 export default function DashboardPage() {
   const { data, connected } = useWebSocket(wsUrl());
+  const [metrics, setMetrics] = useState<any>(null);
+  const effectiveData = data ?? metrics;
   const [cpuH, setCpuH] = useState<Point[]>([]);
   const [ramH, setRamH] = useState<Point[]>([]);
   const [netRxH, setNetRxH] = useState<Point[]>([]);
@@ -31,17 +34,31 @@ export default function DashboardPage() {
   // Carregar histórico inicial
   useEffect(() => {
     Promise.all([
-      api.get('/metrics/history?metric=cpu&range=1h'),
-      api.get('/metrics/history?metric=ram&range=1h'),
-      api.get('/metrics/history?metric=net_rx&range=1h'),
-      api.get('/metrics/history?metric=net_tx&range=1h'),
+      api.get('/api/metrics/history?hours=1'),
+      api.get('/api/metrics/history?hours=1'),
+      api.get('/api/metrics/history?hours=1'),
+      api.get('/api/metrics/history?hours=1'),
     ]).then(([c, r, rx, tx]) => {
-      setCpuH(c.data.data);
-      setRamH(r.data.data);
-      setNetRxH(rx.data.data.map((d: Point) => ({ ...d, value: d.value ? d.value / 1048576 : 0 })));
-      setNetTxH(tx.data.data.map((d: Point) => ({ ...d, value: d.value ? d.value / 1048576 : 0 })));
+      setCpuH(c.data);
+      setRamH(r.data);
+      setNetRxH(rx.data.map((d: Point) => ({ ...d, value: d.value ? d.value / 1048576 : 0 })));
+      setNetTxH(tx.data.map((d: Point) => ({ ...d, value: d.value ? d.value / 1048576 : 0 })));
     }).catch(() => {});
   }, []);
+
+  // Fallback GET quando WS desconectado
+  useEffect(() => {
+    if (connected) return;
+    const fetchMetrics = async () => {
+      try {
+        const res = await api.get('/api/metrics/current');
+        if (res.data) setMetrics(res.data);
+      } catch {}
+    };
+    fetchMetrics();
+    const interval = setInterval(fetchMetrics, 30000);
+    return () => clearInterval(interval);
+  }, [connected]);
 
   // Acumular pontos do WebSocket
   useEffect(() => {
@@ -69,13 +86,13 @@ export default function DashboardPage() {
     } catch { setLogs(['Erro ao carregar logs.']); }
   };
 
-  const containers = data?.containers ?? [];
-  const visible = containers.filter((c) =>
+  const containers = effectiveData?.containers ?? [];
+  const visible = containers.filter((c: any) =>
     filter === 'running' ? c.status === 'running' :
     filter === 'stopped' ? c.status !== 'running' : true
   );
-  const runningCount = containers.filter((c) => c.status === 'running').length;
-  const alertCount = data?.active_alerts?.length ?? 0;
+  const runningCount = containers.filter((c: any) => c.status === 'running').length;
+  const alertCount = effectiveData?.active_alerts?.length ?? 0;
 
   return (
     <div>
@@ -99,7 +116,7 @@ export default function DashboardPage() {
         <MetricCard
           title="Saúde Geral"
           value={alertCount > 0 ? `${alertCount} alerta(s)` : 'Tudo normal'}
-          icon={!data ? '⏳' : alertCount > 0 ? '⚠️' : '✅'}
+          icon={!effectiveData ? '⏳' : alertCount > 0 ? '⚠️' : '✅'}
         />
         <MetricCard
           title="Containers"
@@ -109,20 +126,35 @@ export default function DashboardPage() {
         />
         <MetricCard
           title="RAM"
-          value={`${data?.ram.percent.toFixed(1) ?? '—'}%`}
-          subtitle={data ? `${(data.ram.used_mb / 1024).toFixed(1)} GB usados` : undefined}
-          percent={data?.ram.percent}
+          value={`${effectiveData?.ram?.percent?.toFixed(1) ?? '—'}%`}
+          subtitle={effectiveData ? `${(effectiveData.ram.used_mb / 1024).toFixed(1)} GB usados` : undefined}
+          percent={effectiveData?.ram?.percent}
         />
         <MetricCard
           title="Disco"
-          value={`${data?.disk.percent.toFixed(1) ?? '—'}%`}
-          subtitle={data ? `${data.disk.used_gb} GB usados` : undefined}
-          percent={data?.disk.percent}
+          value={`${effectiveData?.disk?.percent?.toFixed(1) ?? '—'}%`}
+          subtitle={effectiveData ? `${effectiveData.disk.used_gb} GB usados` : undefined}
+          percent={effectiveData?.disk?.percent}
         />
         <MetricCard
           title="Uptime"
-          value={data ? `${data.uptime.days}d ${data.uptime.hours}h ${data.uptime.minutes}m` : '—'}
+          value={effectiveData ? `${effectiveData.uptime.days}d ${effectiveData.uptime.hours}h ${effectiveData.uptime.minutes}m` : '—'}
           icon="⏱️"
+        />
+        <MetricCard
+          title="CPU%"
+          value={`${effectiveData?.cpu?.percent?.toFixed(1) ?? '—'}%`}
+          percent={effectiveData?.cpu?.percent}
+        />
+        <MetricCard
+          title="Temperatura"
+          value={effectiveData?.temperature_c != null ? `${effectiveData.temperature_c.toFixed(1)}°C` : 'N/A'}
+          icon="🌡️"
+        />
+        <MetricCard
+          title="Load Average"
+          value={effectiveData?.cpu?.load_1m != null ? effectiveData.cpu.load_1m.toFixed(2) : '—'}
+          icon="📊"
         />
       </div>
 
@@ -132,13 +164,13 @@ export default function DashboardPage() {
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
             <span style={{ fontWeight: 600, fontSize: 13 }}>CPU</span>
             <span style={{ color: 'var(--accent)', fontWeight: 700 }}>
-              {data?.cpu.percent != null ? `${data.cpu.percent.toFixed(1)}%` : '—'}
+              {effectiveData?.cpu?.percent != null ? `${effectiveData.cpu.percent.toFixed(1)}%` : '—'}
             </span>
           </div>
           <LineChart data={cpuH} color="var(--accent)" unit="%" label="CPU %" />
-          {data && (
+          {effectiveData && (
             <div style={{ marginTop: 8, fontSize: 11, color: 'var(--muted)' }}>
-              Load: {data.cpu.load.map((l) => l.toFixed(2)).join(' / ')} · {data.cpu.cores} cores
+              Load: {effectiveData.cpu.load.map((l: number) => l.toFixed(2)).join(' / ')} · {effectiveData.cpu.cores} cores
             </div>
           )}
         </div>
@@ -147,13 +179,13 @@ export default function DashboardPage() {
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
             <span style={{ fontWeight: 600, fontSize: 13 }}>Memória RAM</span>
             <span style={{ color: 'var(--info)', fontWeight: 700 }}>
-              {data?.ram.percent.toFixed(1) ?? '—'}%
+              {effectiveData?.ram?.percent?.toFixed(1) ?? '—'}%
             </span>
           </div>
           <LineChart data={ramH} color="var(--info)" unit="%" label="RAM %" />
-          {data && (
+          {effectiveData && (
             <div style={{ marginTop: 8, fontSize: 11, color: 'var(--muted)' }}>
-              {(data.ram.used_mb / 1024).toFixed(1)} GB / {(data.ram.total_mb / 1024).toFixed(1)} GB
+              {(effectiveData.ram.used_mb / 1024).toFixed(1)} GB / {(effectiveData.ram.total_mb / 1024).toFixed(1)} GB
             </div>
           )}
         </div>
@@ -164,11 +196,11 @@ export default function DashboardPage() {
         }}>
           <div style={{ marginBottom: 12 }}>
             <span style={{ fontWeight: 600, fontSize: 13 }}>
-              Rede — {data?.net.interface ?? 'eth0'}
+              Rede — {effectiveData?.net?.interface ?? 'eth0'}
             </span>
-            {data && (
+            {effectiveData && (
               <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 12 }}>
-                ↓ {(data.net.rx_bytes_s / 1024).toFixed(1)} KB/s · ↑ {(data.net.tx_bytes_s / 1024).toFixed(1)} KB/s
+                ↓ {(effectiveData.net.rx_bytes_s / 1024).toFixed(1)} KB/s · ↑ {(effectiveData.net.tx_bytes_s / 1024).toFixed(1)} KB/s
               </span>
             )}
           </div>
@@ -213,10 +245,10 @@ export default function DashboardPage() {
           <tbody>
             {visible.length === 0 ? (
               <tr><td colSpan={7} style={{ padding: 24, textAlign: 'center', color: 'var(--muted)' }}>
-                {data ? 'Nenhum container encontrado' : 'Aguardando dados...'}
+                {effectiveData ? 'Nenhum container encontrado' : 'Aguardando dados...'}
               </td></tr>
             ) : (
-              visible.map((c) => (
+              visible.map((c: any) => (
                 <ContainerRow key={c.id} container={c} onViewLogs={openLogs} />
               ))
             )}
@@ -228,7 +260,7 @@ export default function DashboardPage() {
       {alertCount > 0 && (
         <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12, padding: 20 }}>
           <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 16 }}>Alertas Ativos</div>
-          {data!.active_alerts.map((a) => (
+          {effectiveData!.active_alerts.map((a: any) => (
             <div key={a.id} style={{ display: 'flex', gap: 12, padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
               <span style={{ fontSize: 16 }}>{a.severidade === 'critico' ? '🔴' : '⚠️'}</span>
               <div>
