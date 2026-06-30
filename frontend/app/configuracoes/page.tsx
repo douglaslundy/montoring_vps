@@ -88,9 +88,11 @@ export default function ConfiguracoesPage() {
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' | 'info' } | null>(null)
   const [waStatus, setWaStatus] = useState('not_configured')
+  const [waError, setWaError] = useState('')
   const [showQr, setShowQr] = useState(false)
   const [showSmtpPassword, setShowSmtpPassword] = useState(false)
   const [showApiKey, setShowApiKey] = useState(false)
+  const [phoneInput, setPhoneInput] = useState('')
 
   const loadConfig = useCallback(async () => {
     try {
@@ -105,8 +107,39 @@ export default function ConfiguracoesPage() {
     try {
       const r = await api.get('/whatsapp/status')
       setWaStatus(r.data.status)
+      setWaError(r.data.detail || '')
     } catch {}
   }, [])
+
+  function maskPhone(value: string): string {
+    const d = value.replace(/\D/g, '').slice(0, 11)
+    if (d.length <= 2) return d
+    if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`
+    if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`
+    return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`
+  }
+
+  function fromStored(stored: string): string {
+    const d = stored.replace(/\D/g, '')
+    const local = d.startsWith('55') ? d.slice(2) : d
+    return maskPhone(local)
+  }
+
+  function addPhone() {
+    const digits = phoneInput.replace(/\D/g, '')
+    if (digits.length < 10) return
+    const stored = `55${digits}`
+    const current = config.evolution_recipients ? config.evolution_recipients.split(',').filter(Boolean) : []
+    if (!current.includes(stored)) {
+      setConfig(prev => ({ ...prev, evolution_recipients: [...current, stored].join(',') }))
+    }
+    setPhoneInput('')
+  }
+
+  function removePhone(num: string) {
+    const current = config.evolution_recipients ? config.evolution_recipients.split(',').filter(Boolean) : []
+    setConfig(prev => ({ ...prev, evolution_recipients: current.filter(r => r !== num).join(',') }))
+  }
 
   useEffect(() => { loadConfig() }, [loadConfig])
   useEffect(() => { if (section === 'whatsapp') loadWaStatus() }, [section, loadWaStatus])
@@ -294,23 +327,62 @@ export default function ConfiguracoesPage() {
             <label style={labelStyle}>Nome da instância</label>
             <input style={inputStyle} value={config.evolution_instance} onChange={set('evolution_instance')} />
           </div>
+          {/* Números destinatários com máscara */}
           <div style={field}>
-            <label style={labelStyle}>Números destinatários (um por linha, formato: 5511999990001)</label>
-            <textarea style={{ ...inputStyle, height: 80, resize: 'vertical' }}
-              value={config.evolution_recipients.replace(/,/g, '\n')}
-              onChange={e => setConfig(prev => ({ ...prev, evolution_recipients: e.target.value.replace(/\n/g, ',') }))}
-            />
+            <label style={labelStyle}>Números destinatários (WhatsApp)</label>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <input
+                style={{ ...inputStyle, flex: 1 }}
+                value={phoneInput}
+                onChange={e => setPhoneInput(maskPhone(e.target.value))}
+                onKeyDown={e => e.key === 'Enter' && addPhone()}
+                placeholder="(11) 99999-0001"
+                maxLength={15}
+              />
+              <button style={{ ...btn(), whiteSpace: 'nowrap' }} onClick={addPhone}>+ Adicionar</button>
+            </div>
+            {(() => {
+              const list = config.evolution_recipients ? config.evolution_recipients.split(',').filter(Boolean) : []
+              return list.length === 0
+                ? <p style={{ color: 'var(--muted)', fontSize: 12, margin: 0 }}>Nenhum número adicionado</p>
+                : <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {list.map(num => (
+                      <div key={num} style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        background: 'var(--surface)', borderRadius: 6, padding: '6px 12px',
+                        border: '1px solid var(--border)',
+                      }}>
+                        <span style={{ color: 'var(--text)', fontSize: 13 }}>
+                          +{num.slice(0, 2)} {fromStored(num)}
+                        </span>
+                        <button
+                          onClick={() => removePhone(num)}
+                          style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: '0 4px' }}
+                          title="Remover"
+                        >×</button>
+                      </div>
+                    ))}
+                  </div>
+            })()}
           </div>
+
+          {/* Detalhe do erro */}
+          {waStatus === 'error' && waError && (
+            <div style={{ background: 'rgba(var(--danger-rgb,220,38,38),0.1)', border: '1px solid var(--danger)', borderRadius: 6, padding: '8px 12px', marginBottom: 12, fontSize: 12, color: 'var(--danger)' }}>
+              {waError}
+            </div>
+          )}
 
           {/* Botões contextuais */}
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 8 }}>
-            {waStatus === 'no_instance' && (
-              <button style={btn()} onClick={() => setShowQr(true)}>Criar Instância</button>
+            {waStatus !== 'connected' && (
+              <button style={btn()} onClick={() => setShowQr(true)}>
+                {waStatus === 'no_instance' ? 'Criar instância e conectar' : 'Conectar via QR Code'}
+              </button>
             )}
-            {waStatus === 'disconnected' && (<>
-              <button style={btn()} onClick={() => setShowQr(true)}>Conectar (QR)</button>
+            {(waStatus === 'disconnected' || waStatus === 'error') && (
               <button style={btn('var(--danger)', '#fff')} onClick={() => waAction('delete-instance')}>Excluir Instância</button>
-            </>)}
+            )}
             {waStatus === 'connected' && (<>
               <button style={btn('var(--warning)', '#000')} onClick={() => waAction('disconnect')}>Desconectar</button>
               <button style={btn('var(--danger)', '#fff')} onClick={() => waAction('delete-instance')}>Excluir Instância</button>

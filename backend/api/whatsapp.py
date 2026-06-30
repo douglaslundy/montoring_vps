@@ -21,8 +21,9 @@ def _cfg(session: Session):
 def status(session: Session = Depends(get_session)):
     url, key, instance = _cfg(session)
     if not url:
-        return {"status": "not_configured"}
-    return {"status": whatsapp_service.get_status(url, key, instance)}
+        return {"status": "not_configured", "detail": "Evolution URL não configurada"}
+    result = whatsapp_service.get_status(url, key, instance)
+    return result
 
 
 @router.post("/connect")

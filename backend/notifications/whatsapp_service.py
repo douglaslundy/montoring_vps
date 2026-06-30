@@ -21,21 +21,27 @@ def _base(url: str) -> str:
     return url.rstrip("/")
 
 
-def get_status(evolution_url: str, api_key: str, instance: str) -> str:
-    """Retorna: 'connected' | 'disconnected' | 'no_instance' | 'error'"""
+def get_status(evolution_url: str, api_key: str, instance: str) -> dict:
+    """Retorna: {'status': 'connected'|'disconnected'|'no_instance'|'error', 'detail': str}"""
     try:
         r = httpx.get(
             f"{_base(evolution_url)}/instance/connectionState/{instance}",
             headers=_headers(api_key), timeout=5,
         )
         if r.status_code == 404:
-            return "no_instance"
+            return {"status": "no_instance", "detail": ""}
+        if r.status_code == 401:
+            return {"status": "error", "detail": "API Key inválida ou sem permissão"}
         data = r.json()
         state = data.get("instance", {}).get("state", "")
-        return "connected" if state == "open" else "disconnected"
+        return {"status": "connected" if state == "open" else "disconnected", "detail": ""}
+    except httpx.ConnectError as e:
+        detail = f"Não foi possível conectar à Evolution API: {evolution_url}"
+        logger.warning("get_status falhou: %s", e)
+        return {"status": "error", "detail": detail}
     except Exception as e:
         logger.warning("get_status falhou: %s", e, exc_info=True)
-        return "error"
+        return {"status": "error", "detail": str(e)}
 
 
 def get_or_create_qr(evolution_url: str, api_key: str, instance: str) -> str:
@@ -66,7 +72,10 @@ def get_or_create_qr(evolution_url: str, api_key: str, instance: str) -> str:
     data = r.json()
     qr = data.get("base64", data.get("qrcode", {}).get("base64", ""))
     if not qr:
-        logger.warning("QR code vazio na resposta da Evolution API: %s", data)
+        raise RuntimeError(
+            f"QR code não retornado pela Evolution API. "
+            f"Status HTTP: {r.status_code}. Resposta: {data}"
+        )
     return qr
 
 
