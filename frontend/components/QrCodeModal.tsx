@@ -14,6 +14,7 @@ export default function QrCodeModal({ onClose, onConnected }: Props) {
   const [error, setError] = useState('')
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const renewPendingRef = useRef(false)
 
   function clearTimers() {
     if (pollingRef.current) clearInterval(pollingRef.current)
@@ -51,16 +52,19 @@ export default function QrCodeModal({ onClose, onConnected }: Props) {
       } catch {}
     }, 3000)
 
-    // Countdown de 30s
+    // Countdown de 30s — renovação disparada fora do updater para evitar side-effects no Strict Mode
     countdownRef.current = setInterval(() => {
       setCountdown(prev => {
         if (prev <= 1) {
-          // Renova QR
-          fetchQr('/whatsapp/qrcode')
+          renewPendingRef.current = true
           return 30
         }
         return prev - 1
       })
+      if (renewPendingRef.current) {
+        renewPendingRef.current = false
+        fetchQr('/whatsapp/qrcode')
+      }
     }, 1000)
 
     return clearTimers
@@ -82,6 +86,7 @@ export default function QrCodeModal({ onClose, onConnected }: Props) {
         <button
           onClick={onClose}
           style={{ position: 'absolute', top: 12, right: 16, background: 'none', border: 'none', color: 'var(--muted)', fontSize: 20, cursor: 'pointer' }}
+          aria-label="Fechar"
         >×</button>
 
         <h3 style={{ color: 'var(--text)', marginBottom: 8 }}>Conectar WhatsApp</h3>
@@ -104,7 +109,7 @@ export default function QrCodeModal({ onClose, onConnected }: Props) {
             <img
               src={qr.startsWith('data:') ? qr : `data:image/png;base64,${qr}`}
               alt="QR Code WhatsApp"
-              style={{ width: 260, height: 260, border: '4px solid #fff', borderRadius: 8 }}
+              style={{ width: 260, height: 260, border: '4px solid var(--text)', borderRadius: 8 }}
             />
           </div>
         )}
