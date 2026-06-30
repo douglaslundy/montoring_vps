@@ -2,6 +2,7 @@ import os
 from typing import Any
 
 from fastapi import APIRouter, Depends
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from api.auth import verify_token_header
@@ -42,7 +43,7 @@ def get_config(session: Session, key: str, default: str = "") -> str:
 
 @router.get("")
 def read_config(session: Session = Depends(get_session)) -> dict[str, Any]:
-    rows = {r.key: r.value for r in session.query(Config).all()}
+    rows = {r.key: r.value for r in session.execute(select(Config)).scalars().all()}
     result = {}
     for key, default_val in _DEFAULTS.items():
         raw = rows.get(key, default_val)
