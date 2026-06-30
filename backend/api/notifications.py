@@ -38,7 +38,7 @@ def test_whatsapp(session: Session = Depends(get_session)):
             "severidade": "aviso",
             "metrica": "test",
             "mensagem": "Mensagem de teste do VPS Monitor",
-            "triggered_at": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+            "triggered_at": _now_iso(),
         }, session)
         return {"ok": True}
     except Exception as e:
