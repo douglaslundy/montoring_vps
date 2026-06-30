@@ -34,7 +34,9 @@ export default function HistoricoPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await api.get(`/metrics/history?metric=${metric}&range=${range}`);
+      const hoursMap: Record<string, number> = { '1h': 1, '6h': 6, '24h': 24, '7d': 168 };
+      const hours = hoursMap[range] ?? 24;
+      const r = await api.get(`/api/metrics/history?hours=${hours}`);
       setData(r.data.data);
     } catch { setData([]); }
     finally { setLoading(false); }
