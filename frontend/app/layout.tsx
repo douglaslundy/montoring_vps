@@ -8,7 +8,7 @@ const NAV = [
   { href: '/', label: 'Dashboard', icon: '📊' },
   { href: '/containers', label: 'Containers', icon: '🐳' },
   { href: '/historico', label: 'Histórico', icon: '📈' },
-  { href: '/alertas', label: 'Alertas', icon: '🔔', disabled: true },
+  { href: '/alertas', label: 'Alertas', icon: '🔔' },
   { href: '/configuracoes', label: 'Configurações', icon: '⚙️', disabled: true },
 ];
 
