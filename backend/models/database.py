@@ -96,11 +96,11 @@ class Config(Base):
 
 _DEFAULT_RULES = [
     {"nome": "CPU Alta", "metrica": "cpu_percent", "operador": ">", "threshold": 80, "duracao_minutos": 5, "severidade": "aviso", "cooldown_minutos": 30},
-    {"nome": "CPU Critica", "metrica": "cpu_percent", "operador": ">", "threshold": 95, "duracao_minutos": 2, "severidade": "critico", "cooldown_minutos": 15},
+    {"nome": "CPU Crítica", "metrica": "cpu_percent", "operador": ">", "threshold": 95, "duracao_minutos": 2, "severidade": "critico", "cooldown_minutos": 15},
     {"nome": "RAM Alta", "metrica": "ram_percent", "operador": ">", "threshold": 85, "duracao_minutos": 3, "severidade": "aviso", "cooldown_minutos": 30},
-    {"nome": "RAM Critica", "metrica": "ram_percent", "operador": ">", "threshold": 95, "duracao_minutos": 1, "severidade": "critico", "cooldown_minutos": 15},
+    {"nome": "RAM Crítica", "metrica": "ram_percent", "operador": ">", "threshold": 95, "duracao_minutos": 1, "severidade": "critico", "cooldown_minutos": 15},
     {"nome": "Disco Alto", "metrica": "disk_percent", "operador": ">", "threshold": 80, "duracao_minutos": 0, "severidade": "aviso", "cooldown_minutos": 120},
-    {"nome": "Disco Critico", "metrica": "disk_percent", "operador": ">", "threshold": 90, "duracao_minutos": 0, "severidade": "critico", "cooldown_minutos": 60},
+    {"nome": "Disco Crítico", "metrica": "disk_percent", "operador": ">", "threshold": 90, "duracao_minutos": 0, "severidade": "critico", "cooldown_minutos": 60},
     {"nome": "Temperatura Alta", "metrica": "temperature_c", "operador": ">", "threshold": 75, "duracao_minutos": 5, "severidade": "aviso", "cooldown_minutos": 30},
     {"nome": "Load Alto", "metrica": "load_1m", "operador": ">", "threshold": 6.0, "duracao_minutos": 5, "severidade": "aviso", "cooldown_minutos": 30},
     {"nome": "Container Parado", "metrica": "container_stopped", "operador": "==", "threshold": 1, "duracao_minutos": 0, "severidade": "critico", "cooldown_minutos": 0},
