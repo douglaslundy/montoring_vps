@@ -10,6 +10,7 @@ from api.metrics import metrics_router
 from api.containers import containers_router
 from api.health import router as health_router
 from api.alerts import router as alerts_router
+from api.config import router as config_router
 from ws.stream import ws_router
 from models.database import init_db
 
@@ -32,6 +33,7 @@ app.include_router(auth_router, prefix="/api")
 app.include_router(metrics_router, prefix="/api", **_protected)
 app.include_router(containers_router, prefix="/api", **_protected)
 app.include_router(alerts_router)
+app.include_router(config_router)
 app.include_router(ws_router)
 
 
