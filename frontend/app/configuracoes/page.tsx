@@ -95,7 +95,8 @@ export default function ConfiguracoesPage() {
   const loadConfig = useCallback(async () => {
     try {
       const r = await api.get('/config')
-      setConfig({ ...EMPTY_CONFIG, ...r.data })
+      // Não carrega admin_password da API — sempre inicia vazio para forçar digitação explícita
+      setConfig({ ...EMPTY_CONFIG, ...r.data, admin_password: '' })
     } catch {}
     setLoading(false)
   }, [])
@@ -113,13 +114,24 @@ export default function ConfiguracoesPage() {
   async function save() {
     setSaving(true)
     try {
-      await api.put('/config', config)
+      // Não reenvia valores mascarados ou senha vazia que o usuário não alterou
+      const payload: Record<string, string> = Object.fromEntries(
+        Object.entries(config).filter(([k, v]) => {
+          if (k === 'smtp_password' && v.startsWith('****')) return false
+          if (k === 'evolution_api_key' && v.startsWith('****')) return false
+          if (k === 'admin_password' && !v) return false
+          return true
+        })
+      )
+      await api.put('/config', payload)
       setToast({ msg: 'Configurações salvas com sucesso', type: 'success' })
-      loadConfig()
+      await loadConfig()
+      if (section === 'whatsapp') loadWaStatus()
     } catch {
       setToast({ msg: 'Erro ao salvar configurações', type: 'error' })
+    } finally {
+      setSaving(false)
     }
-    setSaving(false)
   }
 
   function set(key: keyof Config) {
@@ -150,7 +162,9 @@ export default function ConfiguracoesPage() {
     try {
       await api.delete(`/whatsapp/${action}`)
       loadWaStatus()
-    } catch {}
+    } catch {
+      setToast({ msg: `Erro ao ${action === 'disconnect' ? 'desconectar' : 'excluir instância'} WhatsApp`, type: 'error' })
+    }
   }
 
   if (loading) return <div style={{ padding: 32, color: 'var(--muted)' }}>Carregando...</div>
