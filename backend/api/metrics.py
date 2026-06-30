@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends
 from sqlalchemy.orm import Session
-from models.database import MetricsHistory, engine
+from models.database import MetricsHistory, get_session
+from api.auth import verify_token_header
 from collector.scheduler import get_last_metrics
 
 metrics_router = APIRouter()
@@ -19,30 +20,31 @@ METRIC_MAP = {
 
 
 @metrics_router.get("/metrics/current")
-def current_metrics():
+def current_metrics(auth=Depends(verify_token_header), session: Session = Depends(get_session)):
     return get_last_metrics()
 
 
 @metrics_router.get("/metrics/history")
 def metrics_history(
     metric: str = Query("cpu"),
-    range: str = Query("1h"),
+    hours: int = Query(24),
+    auth=Depends(verify_token_header),
+    session: Session = Depends(get_session),
 ):
-    hours = RANGE_HOURS.get(range, 1)
+    hours = min(hours, 168)
     col = METRIC_MAP.get(metric, "cpu_percent")
     cutoff = datetime.utcnow() - timedelta(hours=hours)
 
-    with Session(engine) as session:
-        rows = (
-            session.query(MetricsHistory)
-            .filter(MetricsHistory.collected_at >= cutoff)
-            .order_by(MetricsHistory.collected_at.asc())
-            .all()
-        )
+    rows = (
+        session.query(MetricsHistory)
+        .filter(MetricsHistory.collected_at >= cutoff)
+        .order_by(MetricsHistory.collected_at.asc())
+        .all()
+    )
 
     return {
         "metric": metric,
-        "range": range,
+        "hours": hours,
         "data": [
             {"ts": r.collected_at.isoformat() + "Z", "value": getattr(r, col)}
             for r in rows

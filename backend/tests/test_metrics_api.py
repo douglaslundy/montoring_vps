@@ -42,7 +42,7 @@ def test_history_retorna_dados(auth_client):
                 disk_percent=30.0,
             ))
         session.commit()
-    r = client.get("/api/metrics/history?metric=cpu&range=1h")
+    r = client.get("/api/metrics/history?metric=cpu&hours=1")
     assert r.status_code == 200
     data = r.json()
     assert data["metric"] == "cpu"
@@ -51,13 +51,32 @@ def test_history_retorna_dados(auth_client):
     assert "ts" in data["data"][0]
 
 
-def test_history_range_invalido_usa_1h(auth_client):
+def test_history_hours_invalido_usa_24(auth_client):
     client, _ = auth_client
-    r = client.get("/api/metrics/history?metric=cpu&range=invalido")
-    assert r.status_code == 200
+    r = client.get("/api/metrics/history?metric=cpu&hours=invalid")
+    assert r.status_code == 422
 
 
 def test_history_metrica_invalida(auth_client):
     client, _ = auth_client
-    r = client.get("/api/metrics/history?metric=inexistente&range=1h")
+    r = client.get("/api/metrics/history?metric=inexistente&hours=1")
     assert r.status_code == 200
+
+
+def test_sem_autenticacao_401(test_db):
+    import limiter as limiter_mod
+    importlib.reload(limiter_mod)
+    import api.auth
+    importlib.reload(api.auth)
+    import api.metrics
+    importlib.reload(api.metrics)
+    import main
+    importlib.reload(main)
+    client = TestClient(main.app)
+
+    # Sem token no header
+    response = client.get("/api/metrics/current")
+    assert response.status_code == 401
+
+    response = client.get("/api/metrics/history")
+    assert response.status_code == 401
