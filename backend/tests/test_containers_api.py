@@ -40,10 +40,21 @@ def test_containers_vazio(auth_client):
     assert r.json()["containers"] == []
 
 
-@pytest.mark.asyncio
-async def test_logs_container(auth_client):
+def test_logs_container(auth_client):
     with patch("api.containers.docker_client") as mock_dc:
         mock_dc.get_logs = AsyncMock(return_value=["linha 1", "linha 2"])
         r = auth_client.get("/api/containers/abc123/logs")
     assert r.status_code == 200
     assert r.json()["logs"] == ["linha 1", "linha 2"]
+
+
+def test_sem_autenticacao_401():
+    from fastapi.testclient import TestClient
+    import main
+    client = TestClient(main.app)
+
+    r = client.get("/api/containers")
+    assert r.status_code == 401
+
+    r = client.get("/api/containers/abc123/logs")
+    assert r.status_code == 401

@@ -11,6 +11,6 @@ def list_containers():
 
 
 @containers_router.get("/containers/{container_id}/logs")
-async def get_logs(container_id: str, tail: int = 50):
+async def get_logs(container_id: str, tail: int = 100):
     logs = await docker_client.get_logs(container_id, tail=tail)
     return {"logs": logs}
