@@ -108,11 +108,11 @@ _DEFAULT_RULES = [
 ]
 
 _DEFAULT_CONFIG = {
-    "server_name": "VPS Principal",
+    "server_name": "VPS Monitor",
     "timezone": "America/Sao_Paulo",
     "public_url": "",
     "smtp_enabled": "0",
-    "whatsapp_enabled": "0",
+    "evolution_enabled": "0",
     "require_auth": "1",
     "retention_detailed_days": "7",
     "retention_aggregated_days": "30",

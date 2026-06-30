@@ -2,12 +2,15 @@ import os
 from typing import Any
 
 from fastapi import APIRouter, Depends
+from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from api.auth import verify_token_header
 from models.database import Config, get_session
 from notifications.encryption import decrypt, encrypt, is_sensitive, mask
+
+_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 router = APIRouter(prefix="/api/config", dependencies=[Depends(verify_token_header)])
 
@@ -73,5 +76,18 @@ def write_config(body: dict[str, Any], session: Session = Depends(get_session)):
             row.value = stored
         else:
             session.add(Config(key=key, value=stored))
+        # Bridge: sincroniza credenciais de autenticação quando user/password são alterados
+        if key == "admin_user" and str_val:
+            _upsert(session, "auth_username", str_val)
+        if key == "admin_password" and str_val:
+            _upsert(session, "auth_password_hash", _pwd_context.hash(str_val))
     session.commit()
     return {"ok": True}
+
+
+def _upsert(session: Session, key: str, value: str) -> None:
+    row = session.get(Config, key)
+    if row:
+        row.value = value
+    else:
+        session.add(Config(key=key, value=value))
