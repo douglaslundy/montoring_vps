@@ -5,6 +5,8 @@ import { ContainerMetric } from '../lib/ws';
 interface Props {
   container: ContainerMetric;
   onViewLogs?: (id: string, name: string) => void;
+  onToggleExpand?: () => void;
+  isExpanded?: boolean;
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -25,9 +27,19 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-export default function ContainerRow({ container, onViewLogs }: Props) {
+export default function ContainerRow({ container, onViewLogs, onToggleExpand, isExpanded }: Props) {
   return (
     <tr style={{ borderBottom: '1px solid var(--border)' }}>
+      {onToggleExpand && (
+        <td style={{ padding: '10px 16px', width: 32 }}>
+          <button
+            onClick={onToggleExpand}
+            style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 16, lineHeight: 1 }}
+          >
+            {isExpanded ? '▼' : '▶'}
+          </button>
+        </td>
+      )}
       <td style={{ padding: '10px 16px', fontFamily: 'monospace', color: 'var(--accent)', fontSize: 13 }}>
         {container.name}
       </td>
