@@ -83,3 +83,16 @@ def test_cpu_percent_segunda_leitura(proc_dir, sys_dir):
     result = h.collect_host_metrics(proc_base=proc_dir, sys_base=sys_dir)
     assert result["cpu"]["percent"] is not None
     assert 0 <= result["cpu"]["percent"] <= 100
+
+def test_disk(proc_dir, sys_dir):
+    import collector.host as h
+    h._prev_cpu = None
+    h._prev_net = None
+    result = h.collect_host_metrics(proc_base=proc_dir, sys_base=sys_dir)
+    disk = result["disk"]
+    assert "total_gb" in disk
+    assert "used_gb" in disk
+    assert "available_gb" in disk
+    assert "percent" in disk
+    assert disk["total_gb"] >= 0
+    assert 0 <= disk["percent"] <= 100

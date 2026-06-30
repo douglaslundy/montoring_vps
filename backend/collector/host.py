@@ -65,6 +65,7 @@ def _read_disk():
                 total = st.f_blocks * st.f_frsize
                 free = st.f_bavail * st.f_frsize
             else:
+                # os.statvfs disponível apenas em Unix; shutil.disk_usage como fallback para dev
                 usage = shutil.disk_usage(mount)
                 total = usage.total
                 free = usage.free
