@@ -16,8 +16,8 @@ async def test_collect_and_store_salva_no_banco(test_db):
     mock_containers = [
         {"id": "abc123", "id_full": "abc123def456", "name": "test", "image": "nginx",
          "status": "running", "status_text": "Up", "cpu_percent": 2.0,
-         "mem_used_mb": 100.0, "mem_limit_mb": 512.0, "mem_percent": 19.5,
-         "net_rx_bytes": 0, "net_tx_bytes": 0, "restart_count": 0}
+         "mem_usage_mb": 100.0, "mem_limit_mb": 512.0, "mem_percent": 19.5,
+         "net_rx_mb": 0, "net_tx_mb": 0, "restart_count": 0}
     ]
 
     import collector.scheduler as sched

@@ -50,11 +50,11 @@ async def collect_and_store():
                     container_id=c["id"],
                     container_name=c["name"],
                     cpu_percent=c["cpu_percent"],
-                    mem_used_mb=c["mem_used_mb"],
+                    mem_used_mb=c["mem_usage_mb"],
                     mem_limit_mb=c["mem_limit_mb"],
                     mem_percent=c["mem_percent"],
-                    net_rx_bytes=c["net_rx_bytes"],
-                    net_tx_bytes=c["net_tx_bytes"],
+                    net_rx_bytes=c["net_rx_mb"],
+                    net_tx_bytes=c["net_tx_mb"],
                     status=c["status"],
                     restart_count=c["restart_count"],
                 ))
@@ -83,12 +83,17 @@ async def _cleanup():
     import os
     from models.database import Config
     with get_session() as session:
-        cfg = session.get(Config, "retention_detailed_days")
-        days = int(cfg.value) if cfg else int(os.environ.get("RETENTION_DETAILED_DAYS", "7"))
-    cutoff = datetime.utcnow() - timedelta(days=days)
+        detailed_cfg = session.get(Config, "retention_detailed_days")
+        detailed_days = int(detailed_cfg.value) if detailed_cfg else int(os.environ.get("RETENTION_DETAILED_DAYS", "7"))
+        aggregated_cfg = session.get(Config, "retention_aggregated_days")
+        aggregated_days = int(aggregated_cfg.value) if aggregated_cfg else int(os.environ.get("RETENTION_AGGREGATED_DAYS", "30"))
+
+    detailed_cutoff = datetime.utcnow() - timedelta(days=detailed_days)
+    aggregated_cutoff = datetime.utcnow() - timedelta(days=aggregated_days)
+
     with Session(engine) as session:
-        session.query(MetricsHistory).filter(MetricsHistory.collected_at < cutoff).delete()
-        session.query(ContainerMetrics).filter(ContainerMetrics.collected_at < cutoff).delete()
+        session.query(MetricsHistory).filter(MetricsHistory.collected_at < detailed_cutoff).delete()
+        session.query(ContainerMetrics).filter(ContainerMetrics.collected_at < aggregated_cutoff).delete()
         session.commit()
 
 
@@ -98,7 +103,7 @@ def get_last_metrics() -> dict:
 
 def start_scheduler():
     scheduler.add_job(collect_and_store, "interval", seconds=30, id="collect", replace_existing=True)
-    scheduler.add_job(_cleanup, "cron", hour=0, minute=0, id="cleanup", replace_existing=True)
+    scheduler.add_job(_cleanup, "interval", hours=1, id="cleanup", replace_existing=True)
     if not scheduler.running:
         scheduler.start()
     asyncio.ensure_future(collect_and_store())
