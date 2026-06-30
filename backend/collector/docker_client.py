@@ -40,7 +40,7 @@ class DockerClient:
             r.raise_for_status()
             return r.json()
 
-    async def get_stats(self, container_id: str) -> Optional[dict]:
+    async def container_stats(self, container_id: str) -> Optional[dict]:
         try:
             async with self._client() as c:
                 r = await c.get(
@@ -49,9 +49,54 @@ class DockerClient:
                     timeout=5.0,
                 )
                 r.raise_for_status()
-                return r.json()
+                stats = r.json()
+
+            cpu_percent = calculate_cpu_percent(stats)
+
+            ms = stats.get("memory_stats", {})
+            cache = ms.get("stats", {}).get("cache", 0)
+            raw_used = ms.get("usage", 0) - cache
+            lim = ms.get("limit", 1) or 1
+            mem_usage_mb = round(raw_used / 1024 ** 2, 1)
+            mem_limit_mb = round(lim / 1024 ** 2, 1)
+            mem_percent = round(raw_used / lim * 100, 1)
+
+            net_rx_mb = 0.0
+            net_tx_mb = 0.0
+            for iface in stats.get("networks", {}).values():
+                net_rx_mb += iface.get("rx_bytes", 0) / (1024 * 1024)
+                net_tx_mb += iface.get("tx_bytes", 0) / (1024 * 1024)
+
+            block_read_mb = 0.0
+            block_write_mb = 0.0
+            blkio = stats.get("blkio_stats", {})
+            io_service = blkio.get("io_service_bytes_recursive") or []
+            for entry in io_service:
+                op = entry.get("op", "").lower()
+                value = entry.get("value", 0)
+                if op == "read":
+                    block_read_mb += value / (1024 * 1024)
+                elif op == "write":
+                    block_write_mb += value / (1024 * 1024)
+
+            return {
+                "cpu_percent": cpu_percent,
+                "mem_usage_mb": mem_usage_mb,
+                "mem_limit_mb": mem_limit_mb,
+                "mem_percent": mem_percent,
+                "net_rx_mb": net_rx_mb,
+                "net_tx_mb": net_tx_mb,
+                "block_read_mb": block_read_mb,
+                "block_write_mb": block_write_mb,
+            }
         except Exception:
             return None
+
+    async def container_inspect(self, container_id: str) -> dict:
+        async with self._client() as c:
+            r = await c.get(f"/containers/{container_id}/json")
+            r.raise_for_status()
+            return r.json()
 
     async def get_logs(self, container_id: str, tail: int = 50) -> list[str]:
         try:
@@ -81,7 +126,7 @@ class DockerClient:
             return []
 
         stats_list = await asyncio.gather(
-            *[self.get_stats(c["Id"]) for c in containers]
+            *[self.container_stats(c["Id"]) for c in containers]
         )
 
         result = []
@@ -89,21 +134,18 @@ class DockerClient:
             name = (container["Names"][0].lstrip("/") if container["Names"]
                     else container["Id"][:12])
 
-            cpu_pct = mem_used = mem_limit = mem_pct = 0.0
-            net_rx = net_tx = 0
+            cpu_pct = mem_usage = mem_limit = mem_pct = 0.0
+            net_rx = net_tx = block_read = block_write = 0.0
 
             if stats:
-                cpu_pct = calculate_cpu_percent(stats)
-                ms = stats.get("memory_stats", {})
-                cache = ms.get("stats", {}).get("cache", 0)
-                raw_used = ms.get("usage", 0) - cache
-                lim = ms.get("limit", 1) or 1
-                mem_used = round(raw_used / 1024 ** 2, 1)
-                mem_limit = round(lim / 1024 ** 2, 1)
-                mem_pct = round(raw_used / lim * 100, 1)
-                for iface in stats.get("networks", {}).values():
-                    net_rx += iface.get("rx_bytes", 0)
-                    net_tx += iface.get("tx_bytes", 0)
+                cpu_pct = stats.get("cpu_percent", 0.0)
+                mem_usage = stats.get("mem_usage_mb", 0.0)
+                mem_limit = stats.get("mem_limit_mb", 0.0)
+                mem_pct = stats.get("mem_percent", 0.0)
+                net_rx = stats.get("net_rx_mb", 0.0)
+                net_tx = stats.get("net_tx_mb", 0.0)
+                block_read = stats.get("block_read_mb", 0.0)
+                block_write = stats.get("block_write_mb", 0.0)
 
             result.append({
                 "id": container["Id"][:12],
@@ -113,11 +155,13 @@ class DockerClient:
                 "status": container.get("State", "unknown"),
                 "status_text": container.get("Status", ""),
                 "cpu_percent": cpu_pct,
-                "mem_used_mb": mem_used,
+                "mem_usage_mb": mem_usage,
                 "mem_limit_mb": mem_limit,
                 "mem_percent": mem_pct,
-                "net_rx_bytes": net_rx,
-                "net_tx_bytes": net_tx,
+                "net_rx_mb": net_rx,
+                "net_tx_mb": net_tx,
+                "block_read_mb": block_read,
+                "block_write_mb": block_write,
                 "restart_count": container.get("HostConfig", {}).get("RestartCount", 0),
             })
         return result
