@@ -40,7 +40,7 @@ export default function HistoricoPage() {
       setData(r.data.data);
     } catch { setData([]); }
     finally { setLoading(false); }
-  }, [metric, range]);
+  }, [range]);
 
   useEffect(() => { load(); }, [load]);
 
