@@ -102,9 +102,15 @@ def alert_history(
 ):
     q = session.query(AlertLog).order_by(AlertLog.triggered_at.desc())
     if from_dt:
-        q = q.filter(AlertLog.triggered_at >= datetime.fromisoformat(from_dt))
+        try:
+            q = q.filter(AlertLog.triggered_at >= datetime.fromisoformat(from_dt))
+        except ValueError:
+            raise HTTPException(status_code=422, detail="from_dt inválido")
     if to_dt:
-        q = q.filter(AlertLog.triggered_at <= datetime.fromisoformat(to_dt))
+        try:
+            q = q.filter(AlertLog.triggered_at <= datetime.fromisoformat(to_dt))
+        except ValueError:
+            raise HTTPException(status_code=422, detail="to_dt inválido")
     if severidade:
         q = q.filter(AlertLog.severidade == severidade)
     if metrica:

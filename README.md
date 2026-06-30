@@ -63,6 +63,15 @@ Para receber alertas quando a VPS ficar offline, configure um monitor externo gr
 > o sistema está operacional. Se a VPS cair, o UptimeRobot detecta em até 1 minuto
 > e envia o alerta imediatamente.
 
+## Limitações Atuais
+
+### Duração mínima e cooldown de alertas
+
+Os campos **Duração mínima** e **Cooldown** são configuráveis na UI e salvos no banco,
+mas ainda não são verificados pelo motor de alertas. Alertas disparam imediatamente
+ao threshold ser atingido, independente da duração configurada.
+O suporte a duração mínima e cooldown será implementado na Fase 3 (notificações).
+
 ## Troubleshooting
 
 **Container não inicia:** `docker compose logs monitor-backend`

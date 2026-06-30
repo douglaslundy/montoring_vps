@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import datetime
 
 from sqlalchemy.orm import Session
@@ -48,6 +49,7 @@ def _evaluate_rule(session: Session, rule: AlertRule, value: float, mensagem: st
     )
 
     if condition_true and open_log is None:
+        # TODO Fase 3: verificar duracao_minutos e cooldown_minutos antes de notificar
         session.add(AlertLog(
             rule_id=rule.id,
             triggered_at=now,
@@ -99,7 +101,10 @@ def _evaluate_container_stopped(session: Session, rule: AlertRule, containers: l
         .all()
     )
     for log in open_container_logs:
-        container_name = log.mensagem.replace("Container '", "").replace("' parado", "")
+        m = re.search(r"Container '(.+)' parado", log.mensagem or "")
+        if not m:
+            continue
+        container_name = m.group(1)
         if container_name in running_names:
             log.resolved_at = now
 
