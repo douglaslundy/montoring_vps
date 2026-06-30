@@ -28,3 +28,18 @@ def test_email(session: Session = Depends(get_session)):
         return {"ok": True}
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+
+@router.post("/test/whatsapp")
+def test_whatsapp(session: Session = Depends(get_session)):
+    try:
+        from notifications.whatsapp_service import send_alert
+        send_alert({
+            "severidade": "aviso",
+            "metrica": "test",
+            "mensagem": "Mensagem de teste do VPS Monitor",
+            "triggered_at": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+        }, session)
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}

@@ -12,6 +12,7 @@ from api.health import router as health_router
 from api.alerts import router as alerts_router
 from api.config import router as config_router
 from api.notifications import router as notifications_router
+from api.whatsapp import router as whatsapp_router
 from ws.stream import ws_router
 from models.database import init_db
 
@@ -36,6 +37,7 @@ app.include_router(containers_router, prefix="/api", **_protected)
 app.include_router(alerts_router)
 app.include_router(config_router)
 app.include_router(notifications_router)
+app.include_router(whatsapp_router)
 app.include_router(ws_router)
 
 
