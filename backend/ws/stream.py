@@ -1,4 +1,5 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from api.auth import verify_token
 
 ws_router = APIRouter()
 
@@ -30,7 +31,12 @@ manager = ConnectionManager()
 
 
 @ws_router.websocket("/ws/metrics")
-async def websocket_endpoint(websocket: WebSocket):
+async def websocket_endpoint(websocket: WebSocket, token: str = None):
+    # Validar JWT via query param
+    if not token or verify_token(token) is None:
+        await websocket.close(code=4001)
+        return
+
     await manager.connect(websocket)
     try:
         while True:
