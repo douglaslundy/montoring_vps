@@ -40,6 +40,29 @@ Configure em Configurações > SMTP no painel. Teste com "Enviar e-mail de teste
 Em Alertas > Regras, 9 regras padrão já estão configuradas.
 Edite thresholds ou adicione novas regras conforme necessário.
 
+## Monitoramento Externo — Uptime (VPS caída)
+
+O VPS Monitor detecta problemas **internos** (CPU alta, RAM cheia etc.), mas não pode
+alertar sobre queda total da VPS porque roda nela mesma.
+
+Para receber alertas quando a VPS ficar offline, configure um monitor externo gratuito:
+
+### UptimeRobot (recomendado, gratuito)
+
+1. Acesse [uptimerobot.com](https://uptimerobot.com) e crie uma conta
+2. Clique em **+ Add New Monitor**
+3. Preencha:
+   - **Monitor Type:** HTTP(s)
+   - **Friendly Name:** VPS Monitor — Health
+   - **URL:** `https://monitor.dlsistemas.com.br/api/health`
+   - **Monitoring Interval:** 1 minuto (padrão) ou configure conforme preferir
+4. Em **Alert Contacts**, adicione seu e-mail ou webhook WhatsApp
+5. Clique em **Create Monitor**
+
+> O endpoint `/api/health` não requer autenticação e retorna `{"status":"ok"}` quando
+> o sistema está operacional. Se a VPS cair, o UptimeRobot detecta em até 1 minuto
+> e envia o alerta imediatamente.
+
 ## Troubleshooting
 
 **Container não inicia:** `docker compose logs monitor-backend`

@@ -8,6 +8,7 @@ from limiter import limiter
 from api.auth import auth_router, verify_token_header
 from api.metrics import metrics_router
 from api.containers import containers_router
+from api.health import router as health_router
 from ws.stream import ws_router
 from models.database import init_db
 
@@ -25,6 +26,7 @@ app.add_middleware(
 
 _protected = {"dependencies": [Depends(verify_token_header)]}
 
+app.include_router(health_router)
 app.include_router(auth_router, prefix="/api")
 app.include_router(metrics_router, prefix="/api", **_protected)
 app.include_router(containers_router, prefix="/api", **_protected)
@@ -36,8 +38,3 @@ async def startup():
     init_db()
     from collector.scheduler import start_scheduler
     start_scheduler()
-
-
-@app.get("/api/health")
-async def health():
-    return {"status": "ok"}
