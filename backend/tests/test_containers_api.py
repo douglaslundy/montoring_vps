@@ -1,6 +1,6 @@
 import pytest
 import importlib
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, patch, MagicMock
 from fastapi.testclient import TestClient
 
 
@@ -42,7 +42,7 @@ def test_containers_vazio(auth_client):
 
 @pytest.mark.asyncio
 async def test_logs_container(auth_client):
-    with patch("collector.scheduler.docker_client") as mock_dc:
+    with patch("api.containers.docker_client") as mock_dc:
         mock_dc.get_logs = AsyncMock(return_value=["linha 1", "linha 2"])
         r = auth_client.get("/api/containers/abc123/logs")
     assert r.status_code == 200
