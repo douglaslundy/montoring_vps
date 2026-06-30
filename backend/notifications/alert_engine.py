@@ -34,14 +34,12 @@ def _get_metric_value(metrica: str, metrics: dict, containers: list):
 
 
 def _evaluate_rule(session: Session, rule: AlertRule, value: float, mensagem: str, now: datetime):
-    """Avalia uma regra simples (não container_stopped)."""
     op = _OPERATORS.get(rule.operador)
     if op is None or value is None:
         return
 
     condition_true = op(value, rule.threshold)
 
-    # Busca AlertLog aberto para esta regra
     open_log = (
         session.query(AlertLog)
         .filter(AlertLog.rule_id == rule.id, AlertLog.resolved_at.is_(None))
@@ -49,7 +47,6 @@ def _evaluate_rule(session: Session, rule: AlertRule, value: float, mensagem: st
     )
 
     if condition_true and open_log is None:
-        # TODO Fase 3: verificar duracao_minutos e cooldown_minutos antes de notificar
         session.add(AlertLog(
             rule_id=rule.id,
             triggered_at=now,
@@ -59,8 +56,73 @@ def _evaluate_rule(session: Session, rule: AlertRule, value: float, mensagem: st
             threshold=rule.threshold,
             mensagem=mensagem,
         ))
+    elif condition_true and open_log is not None:
+        # Verifica se deve notificar (duracao_minutos atingida e cooldown passou)
+        duration_ok = rule.duracao_minutos == 0 or (
+            (now - open_log.triggered_at).total_seconds() / 60 >= rule.duracao_minutos
+        )
+        cooldown_ok = (
+            open_log.last_notified_at is None or
+            (now - open_log.last_notified_at).total_seconds() / 60 >= rule.cooldown_minutos
+        )
+        if duration_ok and cooldown_ok:
+            _notify_alert(session, open_log, rule, now)
     elif not condition_true and open_log is not None:
         open_log.resolved_at = now
+        _notify_resolution(session, open_log, rule)
+
+
+def _notify_alert(session: Session, log: AlertLog, rule: AlertRule, now: datetime):
+    """Dispara notificação de alerta (email e/ou whatsapp)."""
+    from api.config import get_config
+    alert_dict = {
+        "id": log.id, "severidade": log.severidade, "metrica": log.metrica,
+        "mensagem": log.mensagem, "triggered_at": log.triggered_at.isoformat() + "Z",
+        "valor_no_disparo": log.valor_no_disparo, "threshold": log.threshold,
+    }
+    if rule.canal_email and get_config(session, "smtp_enabled") == "1":
+        try:
+            from notifications.email_service import send_alert
+            send_alert(alert_dict, session)
+            log.notificado_email = 1
+        except Exception as e:
+            log.erro_email = str(e)
+            logger.exception("Erro ao enviar e-mail de alerta")
+    if rule.canal_whatsapp and get_config(session, "evolution_enabled") == "1":
+        try:
+            from notifications.whatsapp_service import send_alert as wa_send
+            wa_send(alert_dict, session)
+            log.notificado_whatsapp = 1
+        except ImportError:
+            pass
+        except Exception as e:
+            log.erro_whatsapp = str(e)
+            logger.exception("Erro ao enviar WhatsApp de alerta")
+    log.last_notified_at = now
+
+
+def _notify_resolution(session: Session, log: AlertLog, rule: AlertRule):
+    """Dispara notificação de resolução."""
+    from api.config import get_config
+    alert_dict = {
+        "id": log.id, "severidade": log.severidade, "metrica": log.metrica,
+        "mensagem": log.mensagem, "triggered_at": log.triggered_at.isoformat() + "Z",
+        "resolved_at": log.resolved_at.isoformat() + "Z" if log.resolved_at else None,
+    }
+    if rule.canal_email and get_config(session, "smtp_enabled") == "1":
+        try:
+            from notifications.email_service import send_resolution
+            send_resolution(alert_dict, session)
+        except Exception:
+            logger.exception("Erro ao enviar e-mail de resolução")
+    if rule.canal_whatsapp and get_config(session, "evolution_enabled") == "1":
+        try:
+            from notifications.whatsapp_service import send_resolution as wa_res
+            wa_res(alert_dict, session)
+        except ImportError:
+            pass
+        except Exception:
+            logger.exception("Erro ao enviar WhatsApp de resolução")
 
 
 def _evaluate_container_stopped(session: Session, rule: AlertRule, containers: list, now: datetime):

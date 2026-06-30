@@ -86,6 +86,7 @@ class AlertLog(Base):
     notificado_whatsapp = Column(Integer, default=0)
     erro_email = Column(Text)
     erro_whatsapp = Column(Text)
+    last_notified_at = Column(DateTime, nullable=True)
 
 
 class Config(Base):
@@ -124,6 +125,12 @@ def init_db():
         conn.execute(text("PRAGMA journal_mode=WAL"))
         conn.execute(text("PRAGMA synchronous=NORMAL"))
         conn.commit()
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE alert_log ADD COLUMN last_notified_at DATETIME"))
+            conn.commit()
+        except Exception:
+            pass  # Coluna já existe
     with Session(engine) as session:
         if session.query(AlertRule).count() == 0:
             for rule in _DEFAULT_RULES:
