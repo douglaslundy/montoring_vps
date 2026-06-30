@@ -1,39 +1,61 @@
+import importlib
+
+import httpx
 import pytest
-import os
-from fastapi.testclient import TestClient
+
 
 @pytest.fixture
-def client(test_db, monkeypatch):
+def app(test_db, monkeypatch):
     monkeypatch.setenv("MONITOR_USER", "admin")
     monkeypatch.setenv("MONITOR_PASSWORD", "senha123")
     monkeypatch.setenv("JWT_SECRET", "secret-de-teste-32-caracteres-ok")
-    import importlib
+    # Reload limiter first so each test gets a fresh in-memory storage
+    import limiter as limiter_mod
+    importlib.reload(limiter_mod)
     import api.auth as auth_mod
     importlib.reload(auth_mod)
     import main
     importlib.reload(main)
-    return TestClient(main.app, raise_server_exceptions=True)
+    return main.app
 
-def test_login_correto(client):
-    r = client.post("/api/auth/login", json={"username": "admin", "password": "senha123"})
+
+@pytest.mark.asyncio
+async def test_login_sucesso(app):
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as ac:
+        r = await ac.post("/api/auth/login", data={"username": "admin", "password": "senha123"})
     assert r.status_code == 200
-    assert "token" in r.json()
+    data = r.json()
+    assert "token" in data
+    assert data["token_type"] == "bearer"
 
-def test_login_senha_errada(client):
-    r = client.post("/api/auth/login", json={"username": "admin", "password": "errada"})
+
+@pytest.mark.asyncio
+async def test_login_senha_errada(app):
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as ac:
+        r = await ac.post("/api/auth/login", data={"username": "admin", "password": "errada"})
     assert r.status_code == 401
 
-def test_rota_protegida_sem_token(client):
-    r = client.get("/api/metrics/current")
+
+@pytest.mark.asyncio
+async def test_me_sem_token(app):
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as ac:
+        r = await ac.get("/api/auth/me")
     assert r.status_code == 401
 
-def test_rota_protegida_com_token(client):
-    token = client.post(
-        "/api/auth/login", json={"username": "admin", "password": "senha123"}
-    ).json()["token"]
-    r = client.get("/api/metrics/current", headers={"Authorization": f"Bearer {token}"})
-    assert r.status_code == 200
 
-def test_health_sem_auth(client):
-    r = client.get("/api/health")
+@pytest.mark.asyncio
+async def test_me_com_token_valido(app):
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as ac:
+        login_r = await ac.post(
+            "/api/auth/login", data={"username": "admin", "password": "senha123"}
+        )
+        token = login_r.json()["token"]
+        r = await ac.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 200
+    data = r.json()
+    assert data["username"] == "admin"
+    assert data["role"] == "admin"

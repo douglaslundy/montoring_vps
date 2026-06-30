@@ -2,11 +2,12 @@ import os
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi.security import OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from pydantic import BaseModel
 
+from limiter import limiter
 from models.database import Config, get_session
 
 auth_router = APIRouter()
@@ -14,11 +15,6 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 SECRET_KEY = os.environ.get("JWT_SECRET", "insecure-default-change-this-now-please")
 ALGORITHM = "HS256"
-
-
-class LoginRequest(BaseModel):
-    username: str
-    password: str
 
 
 def _get_credentials() -> tuple[str, str]:
@@ -37,10 +33,10 @@ def create_token(username: str) -> str:
     return jwt.encode({"sub": username, "exp": exp}, SECRET_KEY, algorithm=ALGORITHM)
 
 
-def verify_token(token: str) -> Optional[str]:
+def verify_token(token: str) -> Optional[dict]:
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        return payload.get("sub")
+        return payload
     except JWTError:
         return None
 
@@ -52,9 +48,25 @@ async def verify_token_header(authorization: Optional[str] = Header(None)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido")
 
 
+async def get_token_data(authorization: Optional[str] = Header(None)) -> dict:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token ausente")
+    payload = verify_token(authorization.removeprefix("Bearer "))
+    if payload is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido")
+    return payload
+
+
 @auth_router.post("/auth/login")
-def login(body: LoginRequest):
+@limiter.limit("5/minute")
+async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
     username, pw_hash = _get_credentials()
-    if body.username != username or not pwd_context.verify(body.password, pw_hash):
+    if form_data.username != username or not pwd_context.verify(form_data.password, pw_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais inválidas")
-    return {"token": create_token(body.username)}
+    token = create_token(form_data.username)
+    return {"token": token, "token_type": "bearer"}
+
+
+@auth_router.get("/auth/me")
+async def me(token_data: dict = Depends(get_token_data)):
+    return {"username": token_data["sub"], "role": "admin"}

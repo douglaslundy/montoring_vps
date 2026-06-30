@@ -1,16 +1,14 @@
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 
+from limiter import limiter
 from api.auth import auth_router, verify_token_header
 from api.metrics import metrics_router
 from api.containers import containers_router
 from ws.stream import ws_router
 from models.database import init_db
-
-limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
 
 app = FastAPI(title="VPS Monitor", docs_url=None, redoc_url=None)
 app.state.limiter = limiter
