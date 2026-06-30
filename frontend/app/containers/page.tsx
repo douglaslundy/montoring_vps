@@ -11,7 +11,8 @@ interface Point { ts: string; value: number | null; }
 function wsUrl() {
   if (typeof window === 'undefined') return '';
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  return `${proto}://${window.location.host}/ws/metrics`;
+  const token = localStorage.getItem('vps_token') || '';
+  return `${proto}://${window.location.host}/ws/metrics?token=${token}`;
 }
 
 export default function ContainersPage() {
