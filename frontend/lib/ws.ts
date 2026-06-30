@@ -9,11 +9,11 @@ export interface ContainerMetric {
   status: string;
   status_text: string;
   cpu_percent: number;
-  mem_used_mb: number;
+  mem_usage_mb: number;
   mem_limit_mb: number;
   mem_percent: number;
-  net_rx_bytes: number;
-  net_tx_bytes: number;
+  net_rx_mb: number;
+  net_tx_mb: number;
   restart_count: number;
 }
 

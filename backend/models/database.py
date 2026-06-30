@@ -49,8 +49,8 @@ class ContainerMetrics(Base):
     mem_used_mb = Column(Float)
     mem_limit_mb = Column(Float)
     mem_percent = Column(Float)
-    net_rx_bytes = Column(Integer)
-    net_tx_bytes = Column(Integer)
+    net_rx_mb = Column(Float)
+    net_tx_mb = Column(Float)
     status = Column(String)
     restart_count = Column(Integer)
 
@@ -134,5 +134,6 @@ def init_db():
         session.commit()
 
 
-def get_session() -> Session:
-    return Session(engine)
+def get_session():
+    with Session(engine) as session:
+        yield session

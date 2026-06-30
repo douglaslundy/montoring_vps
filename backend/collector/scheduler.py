@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from collector.docker_client import DockerClient
 from collector.host import collect_host_metrics
-from models.database import ContainerMetrics, MetricsHistory, engine, get_session
+from models.database import ContainerMetrics, MetricsHistory, engine
 from notifications.alert_engine import evaluate
 from ws.stream import manager
 
@@ -20,7 +20,7 @@ _last_metrics: dict = {}
 async def collect_and_store():
     global _last_metrics
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         host_task = loop.run_in_executor(None, collect_host_metrics)
         docker_task = docker_client.collect_all()
         host, containers = await asyncio.gather(host_task, docker_task)
@@ -53,8 +53,8 @@ async def collect_and_store():
                     mem_used_mb=c["mem_usage_mb"],
                     mem_limit_mb=c["mem_limit_mb"],
                     mem_percent=c["mem_percent"],
-                    net_rx_bytes=c["net_rx_mb"],
-                    net_tx_bytes=c["net_tx_mb"],
+                    net_rx_mb=c["net_rx_mb"],
+                    net_tx_mb=c["net_tx_mb"],
                     status=c["status"],
                     restart_count=c["restart_count"],
                 ))
@@ -82,7 +82,7 @@ async def collect_and_store():
 async def _cleanup():
     import os
     from models.database import Config
-    with get_session() as session:
+    with Session(engine) as session:
         detailed_cfg = session.get(Config, "retention_detailed_days")
         detailed_days = int(detailed_cfg.value) if detailed_cfg else int(os.environ.get("RETENTION_DETAILED_DAYS", "7"))
         aggregated_cfg = session.get(Config, "retention_aggregated_days")

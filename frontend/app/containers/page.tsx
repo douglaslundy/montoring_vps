@@ -163,8 +163,8 @@ export default function ContainersPage() {
                                 {([
                                   ['Imagem', c.image || '—'],
                                   ['Status', c.status_text],
-                                  ['RAM usada', `${c.mem_used_mb.toFixed(1)} MB / ${c.mem_limit_mb.toFixed(1)} MB`],
-                                  ['RX / TX', `${(c.net_rx_bytes / 1024).toFixed(1)} KB / ${(c.net_tx_bytes / 1024).toFixed(1)} KB`],
+                                  ['RAM usada', `${c.mem_usage_mb.toFixed(1)} MB / ${c.mem_limit_mb.toFixed(1)} MB`],
+                                  ['RX / TX', `${(c.net_rx_mb / 1024).toFixed(1)} KB / ${(c.net_tx_mb / 1024).toFixed(1)} KB`],
                                   ['Restarts', String(c.restart_count)],
                                 ] as [string, string][]).map(([k, v]) => (
                                   <tr key={k} style={{ borderBottom: '1px solid var(--border)' }}>

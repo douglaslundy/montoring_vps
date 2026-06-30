@@ -34,6 +34,7 @@ manager = ConnectionManager()
 async def websocket_endpoint(websocket: WebSocket, token: str = None):
     # Validar JWT via query param
     if not token or verify_token(token) is None:
+        await websocket.accept()
         await websocket.close(code=4001)
         return
 

@@ -15,7 +15,9 @@ export default function LoginPage() {
     setLoading(true);
     setError('');
     try {
-      const { data } = await axios.post('/api/auth/login', { username, password });
+      const { data } = await axios.post('/api/auth/login', new URLSearchParams({ username, password }), {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+      });
       localStorage.setItem('vps_token', data.token);
       router.replace('/');
     } catch {

@@ -7,18 +7,22 @@ from fastapi.security import OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
+from sqlalchemy.orm import Session
+
 from limiter import limiter
-from models.database import Config, get_session
+from models.database import Config, engine
 
 auth_router = APIRouter()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-SECRET_KEY = os.environ.get("JWT_SECRET", "insecure-default-change-this-now-please")
+SECRET_KEY = os.environ.get("JWT_SECRET")
+if not SECRET_KEY:
+    raise RuntimeError("JWT_SECRET não definido. Configure no arquivo .env")
 ALGORITHM = "HS256"
 
 
 def _get_credentials() -> tuple[str, str]:
-    with get_session() as session:
+    with Session(engine) as session:
         u = session.get(Config, "auth_username")
         p = session.get(Config, "auth_password_hash")
     username = u.value if u else os.environ.get("MONITOR_USER", "admin")

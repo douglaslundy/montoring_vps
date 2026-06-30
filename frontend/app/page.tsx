@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
-import { useWebSocket } from '../lib/ws';
+import { useWebSocket, MetricsPayload, ContainerMetric } from '../lib/ws';
 import MetricCard from '../components/MetricCard';
 import LineChart from '../components/LineChart';
 import ContainerRow from '../components/ContainerRow';
@@ -20,7 +20,7 @@ const MAX_POINTS = 120; // 1h @ 30s
 
 export default function DashboardPage() {
   const { data, connected } = useWebSocket(wsUrl());
-  const [metrics, setMetrics] = useState<any>(null);
+  const [metrics, setMetrics] = useState<MetricsPayload | null>(null);
   const effectiveData = data ?? metrics;
   const [cpuH, setCpuH] = useState<Point[]>([]);
   const [ramH, setRamH] = useState<Point[]>([]);
@@ -33,16 +33,8 @@ export default function DashboardPage() {
 
   // Carregar histórico inicial
   useEffect(() => {
-    Promise.all([
-      api.get('/api/metrics/history?hours=1'),
-      api.get('/api/metrics/history?hours=1'),
-      api.get('/api/metrics/history?hours=1'),
-      api.get('/api/metrics/history?hours=1'),
-    ]).then(([c, r, rx, tx]) => {
-      setCpuH(c.data);
-      setRamH(r.data);
-      setNetRxH(rx.data.map((d: Point) => ({ ...d, value: d.value ? d.value / 1048576 : 0 })));
-      setNetTxH(tx.data.map((d: Point) => ({ ...d, value: d.value ? d.value / 1048576 : 0 })));
+    api.get('/metrics/history?hours=1').then(r => {
+      setCpuH(r.data.data ?? []);
     }).catch(() => {});
   }, []);
 
@@ -51,7 +43,7 @@ export default function DashboardPage() {
     if (connected) return;
     const fetchMetrics = async () => {
       try {
-        const res = await api.get('/api/metrics/current');
+        const res = await api.get('/metrics/current');
         if (res.data) setMetrics(res.data);
       } catch {}
     };
@@ -87,11 +79,11 @@ export default function DashboardPage() {
   };
 
   const containers = effectiveData?.containers ?? [];
-  const visible = containers.filter((c: any) =>
+  const visible = containers.filter((c: ContainerMetric) =>
     filter === 'running' ? c.status === 'running' :
     filter === 'stopped' ? c.status !== 'running' : true
   );
-  const runningCount = containers.filter((c: any) => c.status === 'running').length;
+  const runningCount = containers.filter((c: ContainerMetric) => c.status === 'running').length;
   const alertCount = effectiveData?.active_alerts?.length ?? 0;
 
   return (
@@ -144,7 +136,7 @@ export default function DashboardPage() {
         <MetricCard
           title="CPU%"
           value={`${effectiveData?.cpu?.percent?.toFixed(1) ?? '—'}%`}
-          percent={effectiveData?.cpu?.percent}
+          percent={effectiveData?.cpu?.percent ?? undefined}
         />
         <MetricCard
           title="Temperatura"
@@ -153,7 +145,7 @@ export default function DashboardPage() {
         />
         <MetricCard
           title="Load Average"
-          value={effectiveData?.cpu?.load_1m != null ? effectiveData.cpu.load_1m.toFixed(2) : '—'}
+          value={effectiveData?.cpu?.load?.[0] != null ? effectiveData.cpu.load[0].toFixed(2) : '—'}
           icon="📊"
         />
       </div>
@@ -248,7 +240,7 @@ export default function DashboardPage() {
                 {effectiveData ? 'Nenhum container encontrado' : 'Aguardando dados...'}
               </td></tr>
             ) : (
-              visible.map((c: any) => (
+              visible.map((c: ContainerMetric) => (
                 <ContainerRow key={c.id} container={c} onViewLogs={openLogs} />
               ))
             )}
