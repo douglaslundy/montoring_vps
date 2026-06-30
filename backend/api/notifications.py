@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
@@ -5,6 +7,10 @@ from api.auth import verify_token_header
 from models.database import get_session
 
 router = APIRouter(prefix="/api/notifications", dependencies=[Depends(verify_token_header)])
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 @router.post("/test/email")
@@ -15,7 +21,7 @@ def test_email(session: Session = Depends(get_session)):
             "severidade": "aviso",
             "metrica": "test",
             "mensagem": "E-mail de teste do VPS Monitor",
-            "triggered_at": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+            "triggered_at": _now_iso(),
             "valor_no_disparo": 0,
             "threshold": 0,
         }, session)

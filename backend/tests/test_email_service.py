@@ -28,8 +28,6 @@ def make_alert():
 def test_send_alert_calls_smtp(monkeypatch):
     from notifications import email_service
     mock_cfg = make_session()
-    monkeypatch.setattr("notifications.email_service.get_config_mock", mock_cfg, raising=False)
-
     sent = {}
     class FakeSMTP:
         def __init__(self, host, port): pass
