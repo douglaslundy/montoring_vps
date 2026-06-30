@@ -46,23 +46,26 @@ def get_status(evolution_url: str, api_key: str, instance: str) -> dict:
 
 def get_or_create_qr(evolution_url: str, api_key: str, instance: str) -> str:
     """Garante que instância existe e retorna QR code base64."""
-    # Verifica se instância existe
+    # Verifica se instância existe (API retorna lista com campo "name" no topo)
     r = httpx.get(
         f"{_base(evolution_url)}/instance/fetchInstances",
         headers=_headers(api_key), timeout=5,
     )
     instances = r.json() if r.status_code == 200 else []
-    names = [i.get("instance", {}).get("instanceName", "") for i in instances]
+    names = [i.get("name", "") for i in instances]
 
     if instance not in names:
         cr = httpx.post(
             f"{_base(evolution_url)}/instance/create",
             headers=_headers(api_key),
-            json={"instanceName": instance, "qrcode": True},
+            json={"instanceName": instance, "integration": "WHATSAPP-BAILEYS", "qrcode": True},
             timeout=10,
         )
         if cr.status_code not in (200, 201):
-            logger.warning("Falha ao criar instância Evolution: %s %s", cr.status_code, cr.text)
+            raise RuntimeError(
+                f"Falha ao criar instância '{instance}' na Evolution API. "
+                f"HTTP {cr.status_code}: {cr.text}"
+            )
 
     # Obtém QR
     r = httpx.get(
