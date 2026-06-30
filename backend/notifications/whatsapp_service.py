@@ -33,7 +33,8 @@ def get_status(evolution_url: str, api_key: str, instance: str) -> str:
         data = r.json()
         state = data.get("instance", {}).get("state", "")
         return "connected" if state == "open" else "disconnected"
-    except Exception:
+    except Exception as e:
+        logger.warning("get_status falhou: %s", e, exc_info=True)
         return "error"
 
 
@@ -48,12 +49,14 @@ def get_or_create_qr(evolution_url: str, api_key: str, instance: str) -> str:
     names = [i.get("instance", {}).get("instanceName", "") for i in instances]
 
     if instance not in names:
-        httpx.post(
+        cr = httpx.post(
             f"{_base(evolution_url)}/instance/create",
             headers=_headers(api_key),
             json={"instanceName": instance, "qrcode": True},
             timeout=10,
         )
+        if cr.status_code not in (200, 201):
+            logger.warning("Falha ao criar instância Evolution: %s %s", cr.status_code, cr.text)
 
     # Obtém QR
     r = httpx.get(
@@ -61,30 +64,36 @@ def get_or_create_qr(evolution_url: str, api_key: str, instance: str) -> str:
         headers=_headers(api_key), timeout=10,
     )
     data = r.json()
-    return data.get("base64", data.get("qrcode", {}).get("base64", ""))
+    qr = data.get("base64", data.get("qrcode", {}).get("base64", ""))
+    if not qr:
+        logger.warning("QR code vazio na resposta da Evolution API: %s", data)
+    return qr
 
 
 def disconnect(evolution_url: str, api_key: str, instance: str) -> None:
-    httpx.delete(
+    r = httpx.delete(
         f"{_base(evolution_url)}/instance/logout/{instance}",
         headers=_headers(api_key), timeout=5,
     )
+    r.raise_for_status()
 
 
 def delete_instance(evolution_url: str, api_key: str, instance: str) -> None:
-    httpx.delete(
+    r = httpx.delete(
         f"{_base(evolution_url)}/instance/delete/{instance}",
         headers=_headers(api_key), timeout=5,
     )
+    r.raise_for_status()
 
 
 def _send_text(evolution_url: str, api_key: str, instance: str, number: str, text: str) -> None:
-    httpx.post(
+    r = httpx.post(
         f"{_base(evolution_url)}/message/sendText/{instance}",
         headers=_headers(api_key),
         json={"number": number, "text": text},
         timeout=10,
     )
+    r.raise_for_status()
 
 
 def _format_alert(alert: dict, server_name: str, public_url: str) -> str:
