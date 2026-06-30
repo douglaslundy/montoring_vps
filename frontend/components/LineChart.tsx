@@ -1,4 +1,5 @@
 'use client';
+import { useId } from 'react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer,
@@ -16,6 +17,8 @@ interface Props {
 export default function LineChart({
   data, color = 'var(--accent)', unit = '%', label, height = 180,
 }: Props) {
+  const uid = useId();
+  const gradientId = `gradient-${uid.replace(/:/g, '')}`;
   const formatted = data.map((d) => ({
     ...d,
     time: new Date(d.ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
@@ -29,7 +32,7 @@ export default function LineChart({
       <ResponsiveContainer width="100%" height={height}>
         <AreaChart data={formatted} margin={{ top: 4, right: 4, bottom: 0, left: -10 }}>
           <defs>
-            <linearGradient id={`g-${label}`} x1="0" y1="0" x2="0" y2="1">
+            <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%" stopColor={color} stopOpacity={0.25} />
               <stop offset="95%" stopColor={color} stopOpacity={0} />
             </linearGradient>
@@ -49,7 +52,7 @@ export default function LineChart({
           />
           <Area
             type="monotone" dataKey="value" stroke={color} strokeWidth={2}
-            fill={`url(#g-${label})`} dot={false} connectNulls
+            fill={`url(#${gradientId})`} dot={false} connectNulls
           />
         </AreaChart>
       </ResponsiveContainer>

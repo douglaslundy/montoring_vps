@@ -1,3 +1,5 @@
+'use client'
+
 interface Props { percent: number; height?: number; }
 
 function color(p: number) {
