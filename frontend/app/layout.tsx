@@ -9,7 +9,7 @@ const NAV = [
   { href: '/containers', label: 'Containers', icon: '🐳' },
   { href: '/historico', label: 'Histórico', icon: '📈' },
   { href: '/alertas', label: 'Alertas', icon: '🔔' },
-  { href: '/configuracoes', label: 'Configurações', icon: '⚙️', disabled: true },
+  { href: '/configuracoes', label: 'Configurações', icon: '⚙️' },
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -46,27 +46,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </div>
 
             <nav style={{ flex: 1, padding: '12px 8px', overflowY: 'auto' }}>
-              {NAV.map((item) =>
-                item.disabled ? (
-                  <div key={item.href} style={{
-                    display: 'flex', alignItems: 'center', gap: 10,
-                    padding: '9px 12px', borderRadius: 8, marginBottom: 2,
-                    color: 'var(--muted)', opacity: 0.4, cursor: 'not-allowed', fontSize: 13,
-                  }}>
-                    <span>{item.icon}</span>{item.label}
-                  </div>
-                ) : (
-                  <Link key={item.href} href={item.href} style={{
-                    display: 'flex', alignItems: 'center', gap: 10,
-                    padding: '9px 12px', borderRadius: 8, marginBottom: 2,
-                    background: pathname === item.href ? 'var(--card)' : 'transparent',
-                    color: pathname === item.href ? 'var(--text)' : 'var(--muted)',
-                    fontSize: 13, transition: 'background 0.15s',
-                  }}>
-                    <span>{item.icon}</span>{item.label}
-                  </Link>
-                )
-              )}
+              {NAV.map((item) => (
+                <Link key={item.href} href={item.href} style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '9px 12px', borderRadius: 8, marginBottom: 2,
+                  background: pathname === item.href ? 'var(--card)' : 'transparent',
+                  color: pathname === item.href ? 'var(--text)' : 'var(--muted)',
+                  fontSize: 13, transition: 'background 0.15s',
+                }}>
+                  <span>{item.icon}</span>{item.label}
+                </Link>
+              ))}
             </nav>
 
             <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)' }}>
