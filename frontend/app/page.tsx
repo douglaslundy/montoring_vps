@@ -39,6 +39,12 @@ export default function DashboardPage() {
     api.get('/metrics/history?metric=ram&hours=1').then(r => {
       setRamH(r.data.data ?? []);
     }).catch(() => {});
+    api.get('/metrics/history?metric=net_rx&hours=1').then(r => {
+      setNetRxH((r.data.data ?? []).map((p: Point) => ({ ts: p.ts, value: p.value != null ? p.value / 1048576 : null })));
+    }).catch(() => {});
+    api.get('/metrics/history?metric=net_tx&hours=1').then(r => {
+      setNetTxH((r.data.data ?? []).map((p: Point) => ({ ts: p.ts, value: p.value != null ? p.value / 1048576 : null })));
+    }).catch(() => {});
   }, []);
 
   // Fallback GET quando WS desconectado
