@@ -33,8 +33,11 @@ export default function DashboardPage() {
 
   // Carregar histórico inicial
   useEffect(() => {
-    api.get('/metrics/history?hours=1').then(r => {
+    api.get('/metrics/history?metric=cpu&hours=1').then(r => {
       setCpuH(r.data.data ?? []);
+    }).catch(() => {});
+    api.get('/metrics/history?metric=ram&hours=1').then(r => {
+      setRamH(r.data.data ?? []);
     }).catch(() => {});
   }, []);
 
