@@ -4,6 +4,7 @@ import LineChart from '../../components/LineChart';
 import api from '../../lib/api';
 
 type Range = '1h' | '6h' | '24h' | '7d';
+type Metric = 'cpu' | 'ram' | 'disk' | 'net_rx' | 'net_tx' | 'load' | 'temperature';
 
 interface Point { ts: string; value: number | null; }
 
@@ -14,46 +15,90 @@ const RANGES: { value: Range; label: string }[] = [
   { value: '7d', label: '7 dias' },
 ];
 
+const METRICS: { value: Metric; label: string; unit: string; color: string }[] = [
+  { value: 'cpu',         label: 'CPU',         unit: '%',    color: 'var(--accent)'  },
+  { value: 'ram',         label: 'RAM',         unit: '%',    color: 'var(--info)'    },
+  { value: 'disk',        label: 'Disco',       unit: '%',    color: 'var(--warning)' },
+  { value: 'net_rx',      label: 'Rede ↓ RX',  unit: ' B/s', color: 'var(--success)' },
+  { value: 'net_tx',      label: 'Rede ↑ TX',  unit: ' B/s', color: '#a78bfa'        },
+  { value: 'load',        label: 'Load Avg',    unit: '',     color: '#f97316'        },
+  { value: 'temperature', label: 'Temperatura', unit: '°C',   color: '#ef4444'        },
+];
+
+function fmtValue(v: number | null, unit: string): string {
+  if (v == null) return '—';
+  if (unit === ' B/s') {
+    if (v >= 1048576) return `${(v / 1048576).toFixed(2)} MB/s`;
+    if (v >= 1024)    return `${(v / 1024).toFixed(1)} KB/s`;
+    return `${v.toFixed(0)} B/s`;
+  }
+  return `${v.toFixed(unit === '' ? 2 : 1)}${unit}`;
+}
+
 export default function HistoricoPage() {
-  const [range, setRange] = useState<Range>('1h');
-  const [data, setData] = useState<Point[]>([]);
+  const [range, setRange]   = useState<Range>('1h');
+  const [metric, setMetric] = useState<Metric>('cpu');
+  const [data, setData]     = useState<Point[]>([]);
   const [loading, setLoading] = useState(false);
+
+  const current = METRICS.find(m => m.value === metric)!;
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const hoursMap: Record<string, number> = { '1h': 1, '6h': 6, '24h': 24, '7d': 168 };
       const hours = hoursMap[range] ?? 24;
-      const r = await api.get(`/metrics/history?hours=${hours}`);
-      setData(r.data.data);
+      const r = await api.get(`/metrics/history?metric=${metric}&hours=${hours}`);
+      setData(r.data.data ?? []);
     } catch { setData([]); }
     finally { setLoading(false); }
-  }, [range]);
+  }, [range, metric]);
 
   useEffect(() => { load(); }, [load]);
 
-  const values = data.map((d) => d.value).filter((v): v is number => v !== null);
+  const values = data.map(d => d.value).filter((v): v is number => v !== null);
   const max = values.length ? Math.max(...values) : null;
   const min = values.length ? Math.min(...values) : null;
   const avg = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
-  const fmt = (v: number | null) => v != null ? `${v.toFixed(1)}%` : '—';
+
+  const tabBtn = (active: boolean): React.CSSProperties => ({
+    padding: '6px 14px', borderRadius: 6, border: '1px solid var(--border)',
+    background: active ? 'var(--accent)' : 'transparent',
+    color: active ? '#000' : 'var(--muted)',
+    fontWeight: active ? 700 : 400,
+    cursor: 'pointer', fontSize: 12,
+  });
+
+  const metricBtn = (active: boolean, color: string): React.CSSProperties => ({
+    padding: '5px 12px', borderRadius: 6, border: `1px solid ${active ? color : 'var(--border)'}`,
+    background: active ? color + '22' : 'transparent',
+    color: active ? color : 'var(--muted)',
+    fontWeight: active ? 700 : 400,
+    cursor: 'pointer', fontSize: 12,
+  });
 
   return (
     <div>
       <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 24 }}>Histórico</h1>
 
+      {/* Seletor de Métrica */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6, textTransform: 'uppercase' }}>Métrica</div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {METRICS.map(m => (
+            <button key={m.value} onClick={() => setMetric(m.value)} style={metricBtn(metric === m.value, m.color)}>
+              {m.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Seletor de Período */}
       <div style={{ marginBottom: 20 }}>
         <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6, textTransform: 'uppercase' }}>Período</div>
         <div style={{ display: 'flex', gap: 6 }}>
-          {RANGES.map((r) => (
-            <button key={r.value} onClick={() => setRange(r.value)} style={{
-              padding: '6px 14px', borderRadius: 6, border: '1px solid var(--border)',
-              background: range === r.value ? 'var(--accent)' : 'transparent',
-              color: range === r.value ? '#000' : 'var(--muted)',
-              fontWeight: range === r.value ? 700 : 400,
-              cursor: 'pointer', fontSize: 12,
-            }}>
+          {RANGES.map(r => (
+            <button key={r.value} onClick={() => setRange(r.value)} style={tabBtn(range === r.value)}>
               {r.label}
             </button>
           ))}
@@ -62,12 +107,12 @@ export default function HistoricoPage() {
 
       {/* Gráfico */}
       <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12, padding: 24, marginBottom: 16 }}>
-        <div style={{ fontWeight: 600, marginBottom: 16 }}>
-          CPU (%) — Histórico
-          {loading && <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 10 }}>Carregando...</span>}
+        <div style={{ fontWeight: 600, marginBottom: 16, color: current.color }}>
+          {current.label}
+          {loading && <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 10, fontWeight: 400 }}>Carregando...</span>}
         </div>
         {data.length > 0 ? (
-          <LineChart data={data} color="var(--accent)" unit="%" height={300} />
+          <LineChart data={data} color={current.color} unit={current.unit} height={300} />
         ) : (
           <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)' }}>
             {loading ? 'Carregando dados...' : 'Sem dados para o período selecionado'}
@@ -78,11 +123,11 @@ export default function HistoricoPage() {
       {/* Estatísticas */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14 }}>
         {[
-          { label: 'Máximo', value: fmt(max) },
-          { label: 'Mínimo', value: fmt(min) },
-          { label: 'Média', value: fmt(avg) },
+          { label: 'Máximo', value: fmtValue(max, current.unit) },
+          { label: 'Mínimo', value: fmtValue(min, current.unit) },
+          { label: 'Média',  value: fmtValue(avg, current.unit) },
           { label: 'Amostras', value: String(values.length) },
-        ].map((stat) => (
+        ].map(stat => (
           <div key={stat.label} style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 10, padding: 16 }}>
             <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6, textTransform: 'uppercase' }}>{stat.label}</div>
             <div style={{ fontSize: 20, fontWeight: 700 }}>{stat.value}</div>
