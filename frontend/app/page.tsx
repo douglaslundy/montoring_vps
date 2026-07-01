@@ -122,13 +122,13 @@ export default function DashboardPage() {
         <MetricCard
           title="RAM"
           value={`${effectiveData?.ram?.percent?.toFixed(1) ?? '—'}%`}
-          subtitle={effectiveData ? `${(effectiveData.ram.used_mb / 1024).toFixed(1)} GB usados` : undefined}
+          subtitle={effectiveData ? `${(effectiveData.ram.used_mb / 1024).toFixed(1)} GB / ${(effectiveData.ram.total_mb / 1024).toFixed(1)} GB` : undefined}
           percent={effectiveData?.ram?.percent}
         />
         <MetricCard
           title="Disco"
           value={`${effectiveData?.disk?.percent?.toFixed(1) ?? '—'}%`}
-          subtitle={effectiveData ? `${effectiveData.disk.used_gb} GB usados` : undefined}
+          subtitle={effectiveData ? `${effectiveData.disk.used_gb} GB / ${effectiveData.disk.total_gb} GB` : undefined}
           percent={effectiveData?.disk?.percent}
         />
         <MetricCard
@@ -139,6 +139,7 @@ export default function DashboardPage() {
         <MetricCard
           title="CPU%"
           value={`${effectiveData?.cpu?.percent?.toFixed(1) ?? '—'}%`}
+          subtitle={effectiveData ? `${effectiveData.cpu.cores} cores` : undefined}
           percent={effectiveData?.cpu?.percent ?? undefined}
         />
         <MetricCard
