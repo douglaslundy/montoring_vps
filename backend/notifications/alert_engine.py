@@ -155,8 +155,11 @@ def _evaluate_container_stopped(session: Session, rule: AlertRule, containers: l
                 mensagem=container_mensagem,
             ))
 
-    # Resolve containers que voltaram a running
+    # Resolve containers que voltaram a running OU que foram removidos
+    # (recriados com outro nome/ID em vez de reiniciados — nesse caso o nome
+    # antigo nunca mais vai reaparecer na lista, então o alerta ficaria preso)
     running_names = {c["name"] for c in containers if c.get("status") == "running"}
+    known_names = {c["name"] for c in containers}
     open_container_logs = (
         session.query(AlertLog)
         .filter(AlertLog.rule_id == rule.id, AlertLog.resolved_at.is_(None))
@@ -167,7 +170,7 @@ def _evaluate_container_stopped(session: Session, rule: AlertRule, containers: l
         if not m:
             continue
         container_name = m.group(1)
-        if container_name in running_names:
+        if container_name in running_names or container_name not in known_names:
             log.resolved_at = now
 
 

@@ -101,6 +101,17 @@ def test_container_stopped_resolves_when_running(fresh_db):
     assert count_open(fresh_db) == 0
 
 
+def test_container_stopped_resolves_when_removed(fresh_db):
+    """Container parado e depois removido (não reiniciado) não deve ficar preso."""
+    from notifications.alert_engine import evaluate
+    add_rule(fresh_db, metrica="container_stopped", operador="==", threshold=1)
+    asyncio.run(evaluate(make_metrics(), [{"name": "old_nginx", "status": "exited"}]))
+    assert count_open(fresh_db) == 1
+    # container removido: some da lista por completo, nunca mais aparece "running"
+    asyncio.run(evaluate(make_metrics(), []))
+    assert count_open(fresh_db) == 0
+
+
 def test_none_metric_does_not_crash(fresh_db):
     from notifications.alert_engine import evaluate
     add_rule(fresh_db, metrica="temperature_c", operador=">", threshold=75.0)
