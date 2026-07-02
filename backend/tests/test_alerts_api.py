@@ -88,6 +88,7 @@ def test_update_rule(client):
 def test_active_alerts_inclui_vps_name(client):
     import models.database as db_module
     from datetime import datetime
+    from api.auth import create_token
     with db_module.Session(db_module.engine) as s:
         s.add(db_module.AlertLog(
             rule_id=None, triggered_at=datetime.utcnow(), severidade="critico",
@@ -95,6 +96,7 @@ def test_active_alerts_inclui_vps_name(client):
         ))
         s.commit()
 
-    r = client.get("/api/alerts/active", headers=auth(client))
+    headers = {"Authorization": f"Bearer {create_token('admin')}"}
+    r = client.get("/api/alerts/active", headers=headers)
     assert r.status_code == 200
     assert r.json()[0]["vps_name"] == "VPS-SP1"
