@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, type CSSProperties } from 'react'
 import api from '../../lib/api'
 import AlertBadge from '../../components/AlertBadge'
 import Toast from '../../components/Toast'
@@ -64,12 +64,12 @@ const emptyForm = (): Omit<AlertRule, 'id' | 'criado_em'> => ({
   canal_email: 1, canal_whatsapp: 1, cooldown_minutos: 30, ativo: 1,
 })
 
-const card: React.CSSProperties = {
+const card: CSSProperties = {
   background: 'var(--card)', border: '1px solid var(--border)',
   borderRadius: 8, padding: 16, marginBottom: 8,
 }
 
-const tabBadge = (active: boolean): React.CSSProperties => ({
+const tabBadge = (active: boolean): CSSProperties => ({
   display: 'inline-block', padding: '4px 12px', borderRadius: 6,
   fontSize: 13, fontWeight: 600, cursor: 'pointer',
   background: active ? 'var(--accent)' : 'var(--surface)',
@@ -78,7 +78,7 @@ const tabBadge = (active: boolean): React.CSSProperties => ({
   marginRight: 8,
 })
 
-const input: React.CSSProperties = {
+const input: CSSProperties = {
   background: 'var(--surface)', border: '1px solid var(--border)',
   borderRadius: 6, padding: '6px 10px', color: 'var(--text)',
   fontSize: 14, width: '100%', boxSizing: 'border-box',
