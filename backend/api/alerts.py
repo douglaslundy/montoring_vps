@@ -130,4 +130,5 @@ def _log_dict(a: AlertLog) -> dict:
         "valor_no_disparo": a.valor_no_disparo,
         "threshold": a.threshold,
         "mensagem": a.mensagem,
+        "vps_name": a.vps_name,
     }

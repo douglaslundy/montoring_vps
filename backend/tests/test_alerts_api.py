@@ -83,3 +83,18 @@ def test_update_rule(client):
     updated = client.get("/api/alerts/rules", headers=h).json()
     rule = next(x for x in updated if x["id"] == rid)
     assert rule["threshold"] == 99.0
+
+
+def test_active_alerts_inclui_vps_name(client):
+    import models.database as db_module
+    from datetime import datetime
+    with db_module.Session(db_module.engine) as s:
+        s.add(db_module.AlertLog(
+            rule_id=None, triggered_at=datetime.utcnow(), severidade="critico",
+            metrica="cpu_percent", mensagem="teste", vps_name="VPS-SP1",
+        ))
+        s.commit()
+
+    r = client.get("/api/alerts/active", headers=auth(client))
+    assert r.status_code == 200
+    assert r.json()[0]["vps_name"] == "VPS-SP1"
