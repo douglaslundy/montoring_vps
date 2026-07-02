@@ -23,6 +23,7 @@ export interface ActiveAlert {
   metrica: string;
   mensagem: string;
   triggered_at: string;
+  vps_name: string | null;
 }
 
 export interface MetricsPayload {

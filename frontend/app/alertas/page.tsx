@@ -15,6 +15,7 @@ interface AlertLog {
   valor_no_disparo: number | null
   threshold: number | null
   mensagem: string | null
+  vps_name: string | null
 }
 
 interface AlertRule {
