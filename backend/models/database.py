@@ -82,6 +82,7 @@ class AlertLog(Base):
     valor_no_disparo = Column(Float)
     threshold = Column(Float)
     mensagem = Column(Text)
+    vps_name = Column(String, nullable=True)
     notificado_email = Column(Integer, default=0)
     notificado_whatsapp = Column(Integer, default=0)
     erro_email = Column(Text)
@@ -131,6 +132,11 @@ def init_db():
             conn.commit()
         except Exception:
             pass  # Coluna já existe
+        try:
+            conn.execute(text("ALTER TABLE alert_log ADD COLUMN vps_name VARCHAR"))
+            conn.commit()
+        except Exception:
+            pass  # Coluna já existe
     with Session(engine) as session:
         if session.query(AlertRule).count() == 0:
             for rule in _DEFAULT_RULES:
@@ -138,6 +144,13 @@ def init_db():
         for key, value in _DEFAULT_CONFIG.items():
             if not session.get(Config, key):
                 session.add(Config(key=key, value=value))
+        session.commit()
+
+        server_name_row = session.get(Config, "server_name")
+        server_name = server_name_row.value if server_name_row else _DEFAULT_CONFIG["server_name"]
+        session.query(AlertLog).filter(AlertLog.vps_name.is_(None)).update(
+            {AlertLog.vps_name: server_name}, synchronize_session=False
+        )
         session.commit()
 
 
