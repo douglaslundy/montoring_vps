@@ -2,11 +2,13 @@ import asyncio
 from datetime import datetime
 import pytest
 from sqlalchemy.orm import Session
-from models.database import AlertLog, AlertRule, engine, init_db
+from models.database import AlertLog, AlertRule, Config, engine, init_db
 
 
 @pytest.fixture(autouse=True)
 def fresh_db(tmp_path, monkeypatch):
+    import os
+    monkeypatch.setenv("JWT_SECRET", "test-secret-key")
     import models.database as db_module
     test_engine = db_module.create_engine(f"sqlite:///{tmp_path}/test.db")
     db_module.Base.metadata.create_all(test_engine)
@@ -119,3 +121,24 @@ def test_none_metric_does_not_crash(fresh_db):
     metrics["temperature_c"] = None
     result = asyncio.run(evaluate(metrics, []))
     assert result == []
+
+
+def test_container_stopped_alert_grava_vps_name_padrao(fresh_db):
+    from notifications.alert_engine import evaluate
+    add_rule(fresh_db, metrica="container_stopped", operador="==", threshold=1)
+    asyncio.run(evaluate(make_metrics(), [{"name": "nginx", "status": "exited"}]))
+    with Session(fresh_db) as s:
+        log = s.query(AlertLog).filter(AlertLog.resolved_at.is_(None)).first()
+    assert log.vps_name == "VPS Monitor"
+
+
+def test_metric_alert_grava_vps_name_configurado(fresh_db):
+    from notifications.alert_engine import evaluate
+    rule_id = add_rule(fresh_db, threshold=80.0, metrica="cpu_percent", operador=">")
+    with Session(fresh_db) as s:
+        s.add(Config(key="server_name", value="VPS-SP1"))
+        s.commit()
+    asyncio.run(evaluate(make_metrics(cpu=90.0), []))
+    with Session(fresh_db) as s:
+        log = s.query(AlertLog).filter(AlertLog.rule_id == rule_id).first()
+    assert log.vps_name == "VPS-SP1"

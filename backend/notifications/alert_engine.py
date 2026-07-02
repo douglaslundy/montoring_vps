@@ -33,7 +33,7 @@ def _get_metric_value(metrica: str, metrics: dict, containers: list):
     return None
 
 
-def _evaluate_rule(session: Session, rule: AlertRule, value: float, mensagem: str, now: datetime):
+def _evaluate_rule(session: Session, rule: AlertRule, value: float, mensagem: str, now: datetime, vps_name: str):
     op = _OPERATORS.get(rule.operador)
     if op is None or value is None:
         return
@@ -55,6 +55,7 @@ def _evaluate_rule(session: Session, rule: AlertRule, value: float, mensagem: st
             valor_no_disparo=value,
             threshold=rule.threshold,
             mensagem=mensagem,
+            vps_name=vps_name,
         ))
     elif condition_true and open_log is not None:
         # Verifica se deve notificar (duracao_minutos atingida e cooldown passou)
@@ -125,7 +126,7 @@ def _notify_resolution(session: Session, log: AlertLog, rule: AlertRule):
             logger.exception("Erro ao enviar WhatsApp de resolução")
 
 
-def _evaluate_container_stopped(session: Session, rule: AlertRule, containers: list, now: datetime):
+def _evaluate_container_stopped(session: Session, rule: AlertRule, containers: list, now: datetime, vps_name: str):
     """Avalia regra especial de container parado — uma instância por container."""
     for c in containers:
         if c.get("status") == "running":
@@ -153,6 +154,7 @@ def _evaluate_container_stopped(session: Session, rule: AlertRule, containers: l
                 valor_no_disparo=1,
                 threshold=1,
                 mensagem=container_mensagem,
+                vps_name=vps_name,
             ))
 
     # Resolve containers que voltaram a running OU que foram removidos
@@ -179,18 +181,21 @@ async def evaluate(metrics: dict, containers: list) -> list:
     now = datetime.utcnow()
     try:
         with Session(engine) as session:
+            from api.config import get_config
+            vps_name = get_config(session, "server_name", "VPS Monitor")
+
             rules = session.query(AlertRule).filter(AlertRule.ativo == 1).all()
 
             for rule in rules:
                 try:
                     if rule.metrica == "container_stopped":
-                        _evaluate_container_stopped(session, rule, containers, now)
+                        _evaluate_container_stopped(session, rule, containers, now, vps_name)
                     else:
                         value = _get_metric_value(rule.metrica, metrics, containers)
                         if value is None:
                             continue
                         mensagem = f"{rule.nome}: {value:.1f} {rule.operador} {rule.threshold}"
-                        _evaluate_rule(session, rule, value, mensagem, now)
+                        _evaluate_rule(session, rule, value, mensagem, now, vps_name)
                 except Exception:
                     logger.exception("Erro avaliando regra %s", rule.nome)
 
@@ -211,6 +216,7 @@ async def evaluate(metrics: dict, containers: list) -> list:
                     "metrica": a.metrica,
                     "mensagem": a.mensagem,
                     "triggered_at": a.triggered_at.isoformat() + "Z",
+                    "vps_name": a.vps_name,
                 }
                 for a in active
             ]
