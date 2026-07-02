@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, type CSSProperties } from 'react'
 import api from '../../lib/api'
 import AlertBadge from '../../components/AlertBadge'
+import VpsBadge from '../../components/VpsBadge'
 import Toast from '../../components/Toast'
 
 interface AlertLog {
@@ -205,6 +206,7 @@ export default function AlertasPage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
                 <AlertBadge severidade={a.severidade} />
                 <span style={{ color: 'var(--text)', fontWeight: 600 }}>{a.mensagem}</span>
+                <VpsBadge name={a.vps_name} />
               </div>
               <div style={{ color: 'var(--muted)', fontSize: 13 }}>
                 Iniciado: {formatDt(a.triggered_at)} · Duração: {elapsed(a.triggered_at)}
@@ -239,7 +241,7 @@ export default function AlertasPage() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>
-                {['Severidade', 'Métrica', 'Mensagem', 'Disparado em', 'Resolvido em'].map(h => (
+                {['Severidade', 'Métrica', 'Mensagem', 'VPS', 'Disparado em', 'Resolvido em'].map(h => (
                   <th key={h} style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 600 }}>{h}</th>
                 ))}
               </tr>
@@ -250,6 +252,7 @@ export default function AlertasPage() {
                   <td style={{ padding: '8px 10px' }}><AlertBadge severidade={a.severidade} /></td>
                   <td style={{ padding: '8px 10px' }}>{METRICA_LABELS[a.metrica] ?? a.metrica}</td>
                   <td style={{ padding: '8px 10px', maxWidth: 320 }}>{a.mensagem}</td>
+                  <td style={{ padding: '8px 10px' }}><VpsBadge name={a.vps_name} /></td>
                   <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>{a.triggered_at ? formatDt(a.triggered_at) : '—'}</td>
                   <td style={{ padding: '8px 10px', whiteSpace: 'nowrap', color: a.resolved_at ? 'var(--success)' : 'var(--warning)' }}>
                     {a.resolved_at ? formatDt(a.resolved_at) : 'Ativo'}

@@ -4,6 +4,7 @@ import { useWebSocket, MetricsPayload, ContainerMetric } from '../lib/ws';
 import MetricCard from '../components/MetricCard';
 import LineChart from '../components/LineChart';
 import ContainerRow from '../components/ContainerRow';
+import VpsBadge from '../components/VpsBadge';
 import api from '../lib/api';
 
 type Filter = 'all' | 'running' | 'stopped';
@@ -266,7 +267,10 @@ export default function DashboardPage() {
             <div key={a.id} style={{ display: 'flex', gap: 12, padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
               <span style={{ fontSize: 16 }}>{a.severidade === 'critico' ? '🔴' : '⚠️'}</span>
               <div>
-                <div style={{ fontSize: 13 }}>{a.mensagem}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ fontSize: 13 }}>{a.mensagem}</div>
+                  <VpsBadge name={a.vps_name} />
+                </div>
                 <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
                   {new Date(a.triggered_at).toLocaleString('pt-BR')}
                 </div>
