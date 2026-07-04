@@ -44,6 +44,31 @@ def test_send_alert_calls_smtp(monkeypatch):
     assert sent.get("called")
 
 
+def test_send_alert_converts_utc_to_local_timezone(monkeypatch):
+    """triggered_at é salvo em UTC; o e-mail deve mostrar o horário de America/Sao_Paulo (UTC-3)."""
+    from notifications import email_service
+    mock_cfg = make_session()
+    sent = {}
+    class FakeSMTP:
+        def __init__(self, host, port): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def starttls(self): pass
+        def login(self, u, p): pass
+        def sendmail(self, f, t, m): sent["message"] = m
+
+    with patch("smtplib.SMTP", FakeSMTP), \
+         patch("notifications.email_service.get_config", mock_cfg):
+        session = MagicMock()
+        email_service.send_alert(make_alert(), session)
+    import email as email_lib
+    msg = email_lib.message_from_bytes(sent["message"])
+    part = next(p for p in msg.walk() if p.get_content_type() == "text/html")
+    body = part.get_payload(decode=True).decode()
+    assert "07:00:00" in body
+    assert "10:00:00" not in body
+
+
 def test_send_resolution_calls_smtp(monkeypatch):
     from notifications import email_service
 

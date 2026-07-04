@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import httpx
 from sqlalchemy.orm import Session
@@ -11,6 +12,18 @@ def get_config(session, key: str, default: str = "") -> str:
     """Lazy proxy — defers api.config import; replaceable in tests via patch."""
     from api.config import get_config as _real
     return _real(session, key, default)
+
+
+def _to_local(iso_str: str, fmt: str, tz_name: str) -> str:
+    """Converte um timestamp ISO UTC (sufixo Z) para o fuso local antes de formatar."""
+    if not iso_str:
+        return iso_str
+    try:
+        dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        dt = dt.astimezone(ZoneInfo(tz_name))
+        return dt.strftime(fmt)
+    except Exception:
+        return iso_str
 
 
 def _headers(api_key: str) -> dict:
@@ -108,16 +121,10 @@ def _send_text(evolution_url: str, api_key: str, instance: str, number: str, tex
     r.raise_for_status()
 
 
-def _format_alert(alert: dict, server_name: str, public_url: str) -> str:
+def _format_alert(alert: dict, server_name: str, public_url: str, tz_name: str) -> str:
     sev = alert.get("severidade", "aviso")
     sev_icon = "🔴" if sev == "critico" else "⚠️"
-    triggered_at = alert.get("triggered_at", "")
-    if triggered_at:
-        try:
-            dt = datetime.fromisoformat(triggered_at.replace("Z", "+00:00"))
-            triggered_at = dt.strftime("%H:%M:%S (%d/%m/%Y)")
-        except Exception:
-            pass
+    triggered_at = _to_local(alert.get("triggered_at", ""), "%H:%M:%S (%d/%m/%Y)", tz_name)
     lines = [
         "🚨 *ALERTA VPS MONITOR*",
         f"Severidade: {sev_icon} {sev.upper()}",
@@ -146,11 +153,12 @@ def send_alert(alert: dict, session: Session) -> None:
     recipients = [r.strip() for r in recipients_raw.split(",") if r.strip()]
     server_name = get_config(session, "server_name", "VPS Monitor")
     public_url = get_config(session, "public_url", "")
+    tz_name = get_config(session, "timezone", "America/Sao_Paulo")
 
     if not url or not recipients:
         raise ValueError("WhatsApp não configurado")
 
-    text = _format_alert(alert, server_name, public_url)
+    text = _format_alert(alert, server_name, public_url, tz_name)
     for number in recipients:
         _send_text(url, api_key, instance, number, text)
 
@@ -166,13 +174,8 @@ def send_resolution(alert: dict, session: Session) -> None:
     if not url or not recipients:
         return
 
-    resolved_at = alert.get("resolved_at", "")
-    if resolved_at:
-        try:
-            dt = datetime.fromisoformat(resolved_at.replace("Z", "+00:00"))
-            resolved_at = dt.strftime("%H:%M:%S (%d/%m/%Y)")
-        except Exception:
-            pass
+    tz_name = get_config(session, "timezone", "America/Sao_Paulo")
+    resolved_at = _to_local(alert.get("resolved_at", ""), "%H:%M:%S (%d/%m/%Y)", tz_name)
 
     text = (
         f"✅ *ALERTA RESOLVIDO — VPS Monitor*\n\n"

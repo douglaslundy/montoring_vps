@@ -1,6 +1,7 @@
 import smtplib
 import logging
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
@@ -16,6 +17,18 @@ def get_config(session, key: str, default: str = "") -> str:
     """Lazy proxy — defers api.config import; replaceable in tests via patch."""
     from api.config import get_config as _real
     return _real(session, key, default)
+
+
+def _to_local(iso_str: str, fmt: str, tz_name: str) -> str:
+    """Converte um timestamp ISO UTC (sufixo Z) para o fuso local antes de formatar."""
+    if not iso_str:
+        return iso_str
+    try:
+        dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        dt = dt.astimezone(ZoneInfo(tz_name))
+        return dt.strftime(fmt)
+    except Exception:
+        return iso_str
 
 
 def _html_template(title: str, header_color: str, body_rows: list[tuple[str, str]], cta_url: str, server_name: str) -> str:
@@ -80,14 +93,8 @@ def send_alert(alert: dict, session: Session) -> None:
     server_name = get_config(session, "server_name", "VPS Monitor")
     public_url = get_config(session, "public_url", "")
     severidade = alert.get("severidade", "aviso")
-
-    triggered_at = alert.get("triggered_at", "")
-    if triggered_at:
-        try:
-            dt = datetime.fromisoformat(triggered_at.replace("Z", "+00:00"))
-            triggered_at = dt.strftime("%d/%m/%Y %H:%M:%S")
-        except Exception:
-            pass
+    tz_name = get_config(session, "timezone", "America/Sao_Paulo")
+    triggered_at = _to_local(alert.get("triggered_at", ""), "%d/%m/%Y %H:%M:%S", tz_name)
 
     rows = [
         ("Severidade", _SEV_LABEL.get(severidade, severidade)),
@@ -116,14 +123,8 @@ def send_resolution(alert: dict, session: Session) -> None:
     recipients = [r.strip() for r in recipients_raw.split(",") if r.strip()]
     server_name = get_config(session, "server_name", "VPS Monitor")
     public_url = get_config(session, "public_url", "")
-
-    resolved_at = alert.get("resolved_at", "")
-    if resolved_at:
-        try:
-            dt = datetime.fromisoformat(resolved_at.replace("Z", "+00:00"))
-            resolved_at = dt.strftime("%d/%m/%Y %H:%M:%S")
-        except Exception:
-            pass
+    tz_name = get_config(session, "timezone", "America/Sao_Paulo")
+    resolved_at = _to_local(alert.get("resolved_at", ""), "%d/%m/%Y %H:%M:%S", tz_name)
 
     rows = [
         ("Métrica", alert.get("metrica", "")),
