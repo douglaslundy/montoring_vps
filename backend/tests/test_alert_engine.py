@@ -142,3 +142,99 @@ def test_metric_alert_grava_vps_name_configurado(fresh_db):
     with Session(fresh_db) as s:
         log = s.query(AlertLog).filter(AlertLog.rule_id == rule_id).first()
     assert log.vps_name == "VPS-SP1"
+
+
+import json
+
+
+def make_containers(*, cpu=None, mem=None, net=None):
+    """Helper: monta lista de containers com campos usados no contexto."""
+    cpu = cpu or {}
+    mem = mem or {}
+    net = net or {}
+    names = set(cpu) | set(mem) | set(net)
+    return [
+        {
+            "name": n,
+            "cpu_percent": cpu.get(n, 0.0),
+            "mem_percent": mem.get(n, 0.0),
+            "net_rx_mb": net.get(n, (0.0, 0.0))[0] if n in net else 0.0,
+            "net_tx_mb": net.get(n, (0.0, 0.0))[1] if n in net else 0.0,
+        }
+        for n in names
+    ]
+
+
+def test_cpu_alert_grava_contexto_top_cpu_e_top_rede(fresh_db):
+    from notifications.alert_engine import evaluate
+    add_rule(fresh_db, threshold=80.0, metrica="cpu_percent", operador=">")
+    containers = make_containers(
+        cpu={"api": 90.0, "worker": 40.0, "db": 10.0},
+        net={"api": (300.0, 20.0), "worker": (5.0, 1.0), "db": (1.0, 1.0)},
+    )
+    asyncio.run(evaluate(make_metrics(cpu=90.0), containers))
+    with Session(fresh_db) as s:
+        log = s.query(AlertLog).filter(AlertLog.resolved_at.is_(None)).first()
+    ctx = json.loads(log.contexto)
+    assert ctx["top_cpu"][0]["nome"] == "api"
+    assert ctx["top_cpu"][0]["valor"] == 90.0
+    assert ctx["top_rede"][0]["nome"] == "api"
+
+
+def test_ram_alert_grava_contexto_top_mem(fresh_db):
+    from notifications.alert_engine import evaluate
+    add_rule(fresh_db, threshold=80.0, metrica="ram_percent", operador=">")
+    containers = make_containers(mem={"api": 88.0, "worker": 30.0})
+    asyncio.run(evaluate(make_metrics(ram=90.0), containers))
+    with Session(fresh_db) as s:
+        log = s.query(AlertLog).filter(AlertLog.resolved_at.is_(None)).first()
+    ctx = json.loads(log.contexto)
+    assert ctx["top_mem"][0]["nome"] == "api"
+    assert ctx["top_mem"][0]["valor"] == 88.0
+
+
+def test_load_alert_grava_contexto_top_cpu(fresh_db):
+    from notifications.alert_engine import evaluate
+    add_rule(fresh_db, threshold=6.0, metrica="load_1m", operador=">")
+    containers = make_containers(cpu={"api": 95.0})
+    asyncio.run(evaluate(make_metrics(load=7.5), containers))
+    with Session(fresh_db) as s:
+        log = s.query(AlertLog).filter(AlertLog.resolved_at.is_(None)).first()
+    ctx = json.loads(log.contexto)
+    assert ctx["top_cpu"][0]["nome"] == "api"
+
+
+def test_temperatura_alert_nao_grava_contexto(fresh_db):
+    from notifications.alert_engine import evaluate
+    add_rule(fresh_db, threshold=75.0, metrica="temperature_c", operador=">")
+    asyncio.run(evaluate(make_metrics(temp=80.0), []))
+    with Session(fresh_db) as s:
+        log = s.query(AlertLog).filter(AlertLog.resolved_at.is_(None)).first()
+    assert log.contexto is None
+
+
+def test_disco_alert_grava_contexto_top_disco(fresh_db):
+    from notifications.alert_engine import evaluate
+    from models.database import ContainerDiskUsage
+    from datetime import datetime
+    add_rule(fresh_db, threshold=80.0, metrica="disk_percent", operador=">")
+    with Session(fresh_db) as s:
+        now = datetime.utcnow()
+        s.add(ContainerDiskUsage(collected_at=now, container_id="a1", container_name="logs-service", size_rw_mb=500.0, size_rootfs_mb=800.0))
+        s.add(ContainerDiskUsage(collected_at=now, container_id="a2", container_name="db", size_rw_mb=50.0, size_rootfs_mb=200.0))
+        s.commit()
+    asyncio.run(evaluate(make_metrics(disk=90.0), []))
+    with Session(fresh_db) as s:
+        log = s.query(AlertLog).filter(AlertLog.resolved_at.is_(None)).first()
+    ctx = json.loads(log.contexto)
+    assert ctx["top_disco"][0]["nome"] == "logs-service"
+    assert ctx["top_disco"][0]["valor_mb"] == 500.0
+
+
+def test_disco_alert_sem_dados_de_disco_grava_contexto_none(fresh_db):
+    from notifications.alert_engine import evaluate
+    add_rule(fresh_db, threshold=80.0, metrica="disk_percent", operador=">")
+    asyncio.run(evaluate(make_metrics(disk=90.0), []))
+    with Session(fresh_db) as s:
+        log = s.query(AlertLog).filter(AlertLog.resolved_at.is_(None)).first()
+    assert log.contexto is None

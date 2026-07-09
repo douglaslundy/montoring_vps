@@ -1,10 +1,12 @@
+import json
 import logging
 import re
 from datetime import datetime
+from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from models.database import AlertLog, AlertRule, engine
+from models.database import AlertLog, AlertRule, ContainerDiskUsage, engine
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +17,67 @@ _OPERATORS = {
     "<=": lambda v, t: v <= t,
     "==": lambda v, t: v == t,
 }
+
+
+def _top_by(containers: list, key: str, n: int = 3) -> list:
+    ranked = sorted(
+        (c for c in containers if c.get(key) is not None),
+        key=lambda c: c[key], reverse=True,
+    )[:n]
+    return [{"nome": c.get("name", "?"), "valor": round(c[key], 1)} for c in ranked]
+
+
+def _top_by_rede(containers: list, n: int = 3) -> list:
+    def trafego(c):
+        return (c.get("net_rx_mb") or 0) + (c.get("net_tx_mb") or 0)
+    ranked = sorted(containers, key=trafego, reverse=True)[:n]
+    return [
+        {"nome": c.get("name", "?"), "valor_mb": round(trafego(c), 1)}
+        for c in ranked if trafego(c) > 0
+    ]
+
+
+def _top_disco(session: Session, n: int = 3) -> list:
+    latest = (
+        session.query(ContainerDiskUsage.collected_at)
+        .order_by(ContainerDiskUsage.collected_at.desc())
+        .first()
+    )
+    if latest is None:
+        return []
+    rows = (
+        session.query(ContainerDiskUsage)
+        .filter(ContainerDiskUsage.collected_at == latest[0])
+        .order_by(ContainerDiskUsage.size_rw_mb.desc())
+        .limit(n)
+        .all()
+    )
+    return [{"nome": r.container_name, "valor_mb": round(r.size_rw_mb or 0, 1)} for r in rows]
+
+
+def _build_metric_context(metrica: str, containers: list, session: Session) -> Optional[dict]:
+    if metrica in ("cpu_percent", "load_1m"):
+        ctx = {}
+        top_cpu = _top_by(containers, "cpu_percent")
+        top_rede = _top_by_rede(containers)
+        if top_cpu:
+            ctx["top_cpu"] = top_cpu
+        if top_rede:
+            ctx["top_rede"] = top_rede
+        return ctx or None
+    if metrica == "ram_percent":
+        ctx = {}
+        top_mem = _top_by(containers, "mem_percent")
+        top_rede = _top_by_rede(containers)
+        if top_mem:
+            ctx["top_mem"] = top_mem
+        if top_rede:
+            ctx["top_rede"] = top_rede
+        return ctx or None
+    if metrica == "disk_percent":
+        top_disco = _top_disco(session)
+        return {"top_disco": top_disco} if top_disco else None
+    return None
 
 
 def _get_metric_value(metrica: str, metrics: dict, containers: list):
@@ -33,7 +96,7 @@ def _get_metric_value(metrica: str, metrics: dict, containers: list):
     return None
 
 
-def _evaluate_rule(session: Session, rule: AlertRule, value: float, mensagem: str, now: datetime, vps_name: str):
+def _evaluate_rule(session: Session, rule: AlertRule, value: float, mensagem: str, now: datetime, vps_name: str, containers: list):
     op = _OPERATORS.get(rule.operador)
     if op is None or value is None:
         return
@@ -47,6 +110,7 @@ def _evaluate_rule(session: Session, rule: AlertRule, value: float, mensagem: st
     )
 
     if condition_true and open_log is None:
+        contexto = _build_metric_context(rule.metrica, containers, session)
         session.add(AlertLog(
             rule_id=rule.id,
             triggered_at=now,
@@ -56,6 +120,7 @@ def _evaluate_rule(session: Session, rule: AlertRule, value: float, mensagem: st
             threshold=rule.threshold,
             mensagem=mensagem,
             vps_name=vps_name,
+            contexto=json.dumps(contexto) if contexto else None,
         ))
     elif condition_true and open_log is not None:
         # Verifica se deve notificar (duracao_minutos atingida e cooldown passou)
@@ -195,7 +260,7 @@ async def evaluate(metrics: dict, containers: list) -> list:
                         if value is None:
                             continue
                         mensagem = f"{rule.nome}: {value:.1f} {rule.operador} {rule.threshold}"
-                        _evaluate_rule(session, rule, value, mensagem, now, vps_name)
+                        _evaluate_rule(session, rule, value, mensagem, now, vps_name, containers)
                 except Exception:
                     logger.exception("Erro avaliando regra %s", rule.nome)
 
