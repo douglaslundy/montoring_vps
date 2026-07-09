@@ -55,6 +55,16 @@ class ContainerMetrics(Base):
     restart_count = Column(Integer)
 
 
+class ContainerDiskUsage(Base):
+    __tablename__ = "container_disk_usage"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    collected_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    container_id = Column(String, nullable=False)
+    container_name = Column(String, nullable=False)
+    size_rw_mb = Column(Float)
+    size_rootfs_mb = Column(Float)
+
+
 class AlertRule(Base):
     __tablename__ = "alert_rules"
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -83,11 +93,24 @@ class AlertLog(Base):
     threshold = Column(Float)
     mensagem = Column(Text)
     vps_name = Column(String, nullable=True)
+    contexto = Column(Text, nullable=True)
     notificado_email = Column(Integer, default=0)
     notificado_whatsapp = Column(Integer, default=0)
     erro_email = Column(Text)
     erro_whatsapp = Column(Text)
     last_notified_at = Column(DateTime, nullable=True)
+
+
+class ContainerActionLog(Base):
+    __tablename__ = "container_action_log"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    performed_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    username = Column(String, nullable=False)
+    container_id = Column(String, nullable=False)
+    container_name = Column(String, nullable=False)
+    acao = Column(String, nullable=False)
+    sucesso = Column(Integer, default=1)
+    erro = Column(Text, nullable=True)
 
 
 class Config(Base):
@@ -134,6 +157,11 @@ def init_db():
             pass  # Coluna já existe
         try:
             conn.execute(text("ALTER TABLE alert_log ADD COLUMN vps_name VARCHAR"))
+            conn.commit()
+        except Exception:
+            pass  # Coluna já existe
+        try:
+            conn.execute(text("ALTER TABLE alert_log ADD COLUMN contexto TEXT"))
             conn.commit()
         except Exception:
             pass  # Coluna já existe
