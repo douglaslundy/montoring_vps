@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, type CSSProperties } from 'react'
+import { useEffect, useState, useCallback, Fragment, type CSSProperties, type ReactNode } from 'react'
 import api from '../../lib/api'
 import AlertBadge from '../../components/AlertBadge'
 import VpsBadge from '../../components/VpsBadge'
@@ -17,6 +17,7 @@ interface AlertLog {
   threshold: number | null
   mensagem: string | null
   vps_name: string | null
+  contexto: Record<string, any> | null
 }
 
 interface AlertRule {
@@ -86,6 +87,58 @@ const input: CSSProperties = {
   fontSize: 14, width: '100%', boxSizing: 'border-box',
 }
 
+function renderContexto(ctx: Record<string, any> | null): ReactNode {
+  if (!ctx) return <span style={{ color: 'var(--muted)' }}>Sem dados de contexto disponíveis para este alerta.</span>
+
+  const linhas: ReactNode[] = []
+
+  if (ctx.top_cpu) {
+    linhas.push(
+      <div key="top_cpu">
+        <strong>Top CPU: </strong>
+        {ctx.top_cpu.map((c: any) => `${c.nome} (${c.valor}%)`).join(', ')}
+      </div>
+    )
+  }
+  if (ctx.top_mem) {
+    linhas.push(
+      <div key="top_mem">
+        <strong>Top RAM: </strong>
+        {ctx.top_mem.map((c: any) => `${c.nome} (${c.valor}%)`).join(', ')}
+      </div>
+    )
+  }
+  if (ctx.top_rede) {
+    linhas.push(
+      <div key="top_rede">
+        <strong>Top Rede: </strong>
+        {ctx.top_rede.map((c: any) => `${c.nome} (${c.valor_mb} MB)`).join(', ')}
+      </div>
+    )
+  }
+  if (ctx.top_disco) {
+    linhas.push(
+      <div key="top_disco">
+        <strong>Top Disco (camada gravável): </strong>
+        {ctx.top_disco.map((c: any) => `${c.nome} (${c.valor_mb} MB)`).join(', ')}
+      </div>
+    )
+  }
+  if ('exit_code' in ctx || 'oom_killed' in ctx) {
+    linhas.push(
+      <div key="exit">
+        <strong>Motivo: </strong>
+        {ctx.oom_killed
+          ? 'finalizado por falta de memória (OOM Killed)'
+          : `código de saída ${ctx.exit_code ?? '—'}`}
+        {ctx.erro ? ` — ${ctx.erro}` : ''}
+      </div>
+    )
+  }
+
+  return linhas.length > 0 ? <div style={{ display: 'grid', gap: 4 }}>{linhas}</div> : renderContexto(null)
+}
+
 export default function AlertasPage() {
   const [tab, setTab] = useState<Tab>('ativas')
   const [active, setActive] = useState<AlertLog[]>([])
@@ -95,6 +148,7 @@ export default function AlertasPage() {
   const [form, setForm] = useState(emptyForm())
   const [editId, setEditId] = useState<number | null>(null)
   const [showForm, setShowForm] = useState(false)
+  const [expandedAlert, setExpandedAlert] = useState<number | null>(null)
 
   // Filtros histórico
   const [filtSeveridade, setFiltSeveridade] = useState('')
@@ -241,6 +295,7 @@ export default function AlertasPage() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>
+                <th style={{ padding: '8px 10px', width: 24 }} />
                 {['Severidade', 'Métrica', 'Mensagem', 'VPS', 'Disparado em', 'Resolvido em'].map(h => (
                   <th key={h} style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 600 }}>{h}</th>
                 ))}
@@ -248,16 +303,29 @@ export default function AlertasPage() {
             </thead>
             <tbody>
               {history.map(a => (
-                <tr key={a.id} style={{ borderBottom: '1px solid var(--border)', color: 'var(--text)' }}>
-                  <td style={{ padding: '8px 10px' }}><AlertBadge severidade={a.severidade} /></td>
-                  <td style={{ padding: '8px 10px' }}>{METRICA_LABELS[a.metrica] ?? a.metrica}</td>
-                  <td style={{ padding: '8px 10px', maxWidth: 320 }}>{a.mensagem}</td>
-                  <td style={{ padding: '8px 10px' }}><VpsBadge name={a.vps_name} /></td>
-                  <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>{a.triggered_at ? formatDt(a.triggered_at) : '—'}</td>
-                  <td style={{ padding: '8px 10px', whiteSpace: 'nowrap', color: a.resolved_at ? 'var(--success)' : 'var(--warning)' }}>
-                    {a.resolved_at ? formatDt(a.resolved_at) : 'Ativo'}
-                  </td>
-                </tr>
+                <Fragment key={a.id}>
+                  <tr
+                    style={{ borderBottom: '1px solid var(--border)', color: 'var(--text)', cursor: 'pointer' }}
+                    onClick={() => setExpandedAlert(expandedAlert === a.id ? null : a.id)}
+                  >
+                    <td style={{ padding: '8px 10px', color: 'var(--muted)' }}>{expandedAlert === a.id ? '▼' : '▶'}</td>
+                    <td style={{ padding: '8px 10px' }}><AlertBadge severidade={a.severidade} /></td>
+                    <td style={{ padding: '8px 10px' }}>{METRICA_LABELS[a.metrica] ?? a.metrica}</td>
+                    <td style={{ padding: '8px 10px', maxWidth: 320 }}>{a.mensagem}</td>
+                    <td style={{ padding: '8px 10px' }}><VpsBadge name={a.vps_name} /></td>
+                    <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>{a.triggered_at ? formatDt(a.triggered_at) : '—'}</td>
+                    <td style={{ padding: '8px 10px', whiteSpace: 'nowrap', color: a.resolved_at ? 'var(--success)' : 'var(--warning)' }}>
+                      {a.resolved_at ? formatDt(a.resolved_at) : 'Ativo'}
+                    </td>
+                  </tr>
+                  {expandedAlert === a.id && (
+                    <tr>
+                      <td colSpan={7} style={{ background: 'var(--surface)', padding: 16, borderBottom: '1px solid var(--border)', fontSize: 12 }}>
+                        {renderContexto(a.contexto)}
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               ))}
             </tbody>
           </table>
