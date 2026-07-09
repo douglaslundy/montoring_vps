@@ -7,6 +7,8 @@ interface Props {
   onViewLogs?: (id: string, name: string) => void;
   onToggleExpand?: () => void;
   isExpanded?: boolean;
+  onAction?: (id: string, name: string, action: 'start' | 'stop' | 'restart') => void;
+  actionLoading?: string | null;
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -27,7 +29,13 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-export default function ContainerRow({ container, onViewLogs, onToggleExpand, isExpanded }: Props) {
+export default function ContainerRow({ container, onViewLogs, onToggleExpand, isExpanded, onAction, actionLoading }: Props) {
+  const actionBtn = {
+    padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border)',
+    background: 'transparent', color: 'var(--text)', cursor: 'pointer', fontSize: 13, lineHeight: 1,
+  } as const;
+  const actionBtnDisabled = { ...actionBtn, opacity: 0.35, cursor: 'not-allowed' } as const;
+
   return (
     <tr style={{ borderBottom: '1px solid var(--border)' }}>
       {onToggleExpand && (
@@ -65,15 +73,45 @@ export default function ContainerRow({ container, onViewLogs, onToggleExpand, is
         {container.restart_count ?? 0}
       </td>
       <td style={{ padding: '10px 16px' }}>
-        <button
-          onClick={() => onViewLogs?.(container.id, container.name)}
-          style={{
-            padding: '4px 12px', borderRadius: 6, border: '1px solid var(--border)',
-            background: 'transparent', color: 'var(--text)', cursor: 'pointer', fontSize: 12,
-          }}
-        >
-          Ver Logs
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button
+            onClick={() => onViewLogs?.(container.id, container.name)}
+            style={{
+              padding: '4px 12px', borderRadius: 6, border: '1px solid var(--border)',
+              background: 'transparent', color: 'var(--text)', cursor: 'pointer', fontSize: 12,
+            }}
+          >
+            Ver Logs
+          </button>
+          {onAction && (
+            <>
+              <button
+                title="Iniciar"
+                disabled={container.status === 'running' || actionLoading === `${container.id}:start`}
+                onClick={() => onAction(container.id, container.name, 'start')}
+                style={container.status === 'running' ? actionBtnDisabled : actionBtn}
+              >
+                {actionLoading === `${container.id}:start` ? '…' : '▶'}
+              </button>
+              <button
+                title="Reiniciar"
+                disabled={container.status !== 'running' || actionLoading === `${container.id}:restart`}
+                onClick={() => onAction(container.id, container.name, 'restart')}
+                style={container.status !== 'running' ? actionBtnDisabled : actionBtn}
+              >
+                {actionLoading === `${container.id}:restart` ? '…' : '⟳'}
+              </button>
+              <button
+                title="Parar"
+                disabled={container.status !== 'running' || actionLoading === `${container.id}:stop`}
+                onClick={() => onAction(container.id, container.name, 'stop')}
+                style={container.status !== 'running' ? actionBtnDisabled : actionBtn}
+              >
+                {actionLoading === `${container.id}:stop` ? '…' : '⏹'}
+              </button>
+            </>
+          )}
+        </div>
       </td>
     </tr>
   );

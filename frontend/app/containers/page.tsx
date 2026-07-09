@@ -3,10 +3,16 @@ import { useState, useEffect, Fragment } from 'react';
 import { useWebSocket, ContainerMetric } from '../../lib/ws';
 import ContainerRow from '../../components/ContainerRow';
 import LineChart from '../../components/LineChart';
+import Toast from '../../components/Toast';
 import api from '../../lib/api';
 
 type Filter = 'all' | 'running' | 'stopped';
+type ContainerAction = 'start' | 'stop' | 'restart';
 interface Point { ts: string; value: number | null; }
+interface ConfirmState { id: string; name: string; action: ContainerAction; }
+
+const MONITOR_CONTAINERS = ['monitor-backend', 'monitor-frontend', 'monitor-nginx'];
+const ACTION_LABEL: Record<ContainerAction, string> = { start: 'iniciar', stop: 'parar', restart: 'reiniciar' };
 
 function wsUrl() {
   if (typeof window === 'undefined') return '';
@@ -24,6 +30,29 @@ export default function ContainersPage() {
   const [logs, setLogs] = useState<string[]>([]);
   const [logSearch, setLogSearch] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
+  const [confirmAction, setConfirmAction] = useState<ConfirmState | null>(null);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [actionToast, setActionToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
+
+  async function runAction(id: string, action: ContainerAction) {
+    setActionLoading(`${id}:${action}`);
+    try {
+      await api.post(`/containers/${id}/${action}`);
+      setActionToast({ msg: `Comando de ${ACTION_LABEL[action]} enviado.`, type: 'success' });
+    } catch {
+      setActionToast({ msg: `Falha ao ${ACTION_LABEL[action]} o container.`, type: 'error' });
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  function requestAction(id: string, name: string, action: ContainerAction) {
+    if (action === 'start') {
+      runAction(id, action);
+      return;
+    }
+    setConfirmAction({ id, name, action });
+  }
 
   // Polling fallback when WebSocket is disconnected
   useEffect(() => {
@@ -139,6 +168,8 @@ export default function ContainersPage() {
                     onViewLogs={openLogs}
                     onToggleExpand={() => setExpanded(expanded === c.id ? null : c.id)}
                     isExpanded={expanded === c.id}
+                    onAction={requestAction}
+                    actionLoading={actionLoading}
                   />
                   {expanded === c.id && (
                     <tr key={`${c.id}-detail`}>
@@ -256,6 +287,56 @@ export default function ContainersPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal de confirmação de ação */}
+      {confirmAction && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)',
+            zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+          onClick={() => setConfirmAction(null)}
+        >
+          <div
+            style={{
+              background: 'var(--card)', border: '1px solid var(--border)',
+              borderRadius: 12, padding: 24, maxWidth: 420,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 style={{ marginBottom: 12, color: 'var(--text)' }}>
+              {MONITOR_CONTAINERS.includes(confirmAction.name) ? 'Atenção: container do próprio monitor' : 'Confirmar ação'}
+            </h3>
+            <p style={{ color: 'var(--muted)', marginBottom: 20, fontSize: 14 }}>
+              {MONITOR_CONTAINERS.includes(confirmAction.name)
+                ? `Este é um container do próprio VPS Monitor. ${confirmAction.action === 'stop' ? 'Parar' : 'Reiniciar'} "${confirmAction.name}" pode derrubar o painel de monitoramento temporariamente. Deseja continuar?`
+                : `Tem certeza que deseja ${ACTION_LABEL[confirmAction.action]} o container "${confirmAction.name}"?`}
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setConfirmAction(null)}
+                style={{ padding: '8px 16px', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer' }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => { runAction(confirmAction.id, confirmAction.action); setConfirmAction(null); }}
+                style={{ padding: '8px 20px', background: 'var(--danger)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 700 }}
+              >
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {actionToast && (
+        <Toast
+          message={actionToast.msg}
+          type={actionToast.type}
+          onDismiss={() => setActionToast(null)}
+        />
       )}
     </div>
   );
