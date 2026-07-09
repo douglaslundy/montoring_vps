@@ -100,3 +100,39 @@ def test_active_alerts_inclui_vps_name(client):
     r = client.get("/api/alerts/active", headers=headers)
     assert r.status_code == 200
     assert r.json()[0]["vps_name"] == "VPS-SP1"
+
+
+def test_history_inclui_contexto_desserializado(client):
+    import json
+    import models.database as db_module
+    from datetime import datetime
+    from api.auth import create_token
+    with db_module.Session(db_module.engine) as s:
+        s.add(db_module.AlertLog(
+            rule_id=None, triggered_at=datetime.utcnow(), severidade="critico",
+            metrica="cpu_percent", mensagem="teste",
+            contexto=json.dumps({"top_cpu": [{"nome": "api", "valor": 90.0}]}),
+        ))
+        s.commit()
+
+    headers = {"Authorization": f"Bearer {create_token('admin')}"}
+    r = client.get("/api/alerts/history", headers=headers)
+    assert r.status_code == 200
+    assert r.json()[0]["contexto"] == {"top_cpu": [{"nome": "api", "valor": 90.0}]}
+
+
+def test_history_alerta_sem_contexto_retorna_none(client):
+    import models.database as db_module
+    from datetime import datetime
+    from api.auth import create_token
+    with db_module.Session(db_module.engine) as s:
+        s.add(db_module.AlertLog(
+            rule_id=None, triggered_at=datetime.utcnow(), severidade="aviso",
+            metrica="temperature_c", mensagem="teste sem contexto",
+        ))
+        s.commit()
+
+    headers = {"Authorization": f"Bearer {create_token('admin')}"}
+    r = client.get("/api/alerts/history", headers=headers)
+    assert r.status_code == 200
+    assert r.json()[0]["contexto"] is None

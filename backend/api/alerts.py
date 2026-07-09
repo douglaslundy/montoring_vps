@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 from typing import Optional
 
@@ -131,4 +132,5 @@ def _log_dict(a: AlertLog) -> dict:
         "threshold": a.threshold,
         "mensagem": a.mensagem,
         "vps_name": a.vps_name,
+        "contexto": json.loads(a.contexto) if a.contexto else None,
     }
