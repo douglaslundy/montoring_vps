@@ -188,3 +188,99 @@ async def test_collect_all():
     assert c["cpu_percent"] == pytest.approx(20.0, abs=0.1)
     assert c["mem_usage_mb"] == pytest.approx(100.0, abs=1)
     assert c["mem_percent"] == pytest.approx(9.8, abs=0.2)
+
+
+# ---------------------------------------------------------------------------
+# Container control (start/stop/restart) + list_containers_with_size
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_start_container_chama_endpoint_correto():
+    from collector.docker_client import DockerClient
+    client = DockerClient()
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.raise_for_status = MagicMock()
+    mock_http = AsyncMock()
+    mock_http.post = AsyncMock(return_value=mock_response)
+    mock_http.__aenter__ = AsyncMock(return_value=mock_http)
+    mock_http.__aexit__ = AsyncMock(return_value=False)
+
+    with patch.object(client, "_client", return_value=mock_http):
+        await client.start_container("abc123")
+
+    mock_http.post.assert_called_once_with("/containers/abc123/start", params={})
+
+
+@pytest.mark.asyncio
+async def test_stop_container_passa_timeout():
+    from collector.docker_client import DockerClient
+    client = DockerClient()
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.raise_for_status = MagicMock()
+    mock_http = AsyncMock()
+    mock_http.post = AsyncMock(return_value=mock_response)
+    mock_http.__aenter__ = AsyncMock(return_value=mock_http)
+    mock_http.__aexit__ = AsyncMock(return_value=False)
+
+    with patch.object(client, "_client", return_value=mock_http):
+        await client.stop_container("abc123", timeout=5)
+
+    mock_http.post.assert_called_once_with("/containers/abc123/stop", params={"t": 5})
+
+
+@pytest.mark.asyncio
+async def test_restart_container_trata_304_como_sucesso():
+    from collector.docker_client import DockerClient
+    client = DockerClient()
+
+    mock_response = MagicMock()
+    mock_response.status_code = 304
+    mock_response.raise_for_status = MagicMock(side_effect=AssertionError("não deveria chamar raise_for_status em 304"))
+    mock_http = AsyncMock()
+    mock_http.post = AsyncMock(return_value=mock_response)
+    mock_http.__aenter__ = AsyncMock(return_value=mock_http)
+    mock_http.__aexit__ = AsyncMock(return_value=False)
+
+    with patch.object(client, "_client", return_value=mock_http):
+        await client.restart_container("abc123")  # não deve levantar exceção
+
+
+@pytest.mark.asyncio
+async def test_start_container_propaga_erro_404():
+    import httpx
+    from collector.docker_client import DockerClient
+    client = DockerClient()
+
+    mock_response = MagicMock()
+    mock_response.status_code = 404
+    mock_response.raise_for_status = MagicMock(
+        side_effect=httpx.HTTPStatusError("not found", request=MagicMock(), response=mock_response)
+    )
+    mock_http = AsyncMock()
+    mock_http.post = AsyncMock(return_value=mock_response)
+    mock_http.__aenter__ = AsyncMock(return_value=mock_http)
+    mock_http.__aexit__ = AsyncMock(return_value=False)
+
+    with patch.object(client, "_client", return_value=mock_http):
+        with pytest.raises(httpx.HTTPStatusError):
+            await client.start_container("inexistente")
+
+
+@pytest.mark.asyncio
+async def test_list_containers_with_size():
+    from collector.docker_client import DockerClient
+    client = DockerClient()
+
+    mock_data = [
+        {"Id": "abc123def456", "Names": ["/meu-container"], "SizeRw": 13107200, "SizeRootFs": 356515840},
+    ]
+    mock_http = _make_mock_http_client(mock_data)
+    with patch.object(client, "_client", return_value=mock_http):
+        result = await client.list_containers_with_size()
+
+    assert result == mock_data
+    mock_http.get.assert_called_once_with("/containers/json", params={"all": True, "size": True})

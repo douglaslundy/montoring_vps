@@ -98,6 +98,28 @@ class DockerClient:
             r.raise_for_status()
             return r.json()
 
+    async def _post_action(self, container_id: str, action: str, params: Optional[dict] = None) -> None:
+        async with self._client() as c:
+            r = await c.post(f"/containers/{container_id}/{action}", params=params or {})
+            if r.status_code == 304:
+                return
+            r.raise_for_status()
+
+    async def start_container(self, container_id: str) -> None:
+        await self._post_action(container_id, "start")
+
+    async def stop_container(self, container_id: str, timeout: int = 10) -> None:
+        await self._post_action(container_id, "stop", {"t": timeout})
+
+    async def restart_container(self, container_id: str, timeout: int = 10) -> None:
+        await self._post_action(container_id, "restart", {"t": timeout})
+
+    async def list_containers_with_size(self) -> list[dict]:
+        async with self._client() as c:
+            r = await c.get("/containers/json", params={"all": True, "size": True})
+            r.raise_for_status()
+            return r.json()
+
     async def get_logs(self, container_id: str, tail: int = 50) -> list[str]:
         try:
             async with self._client() as c:
