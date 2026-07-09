@@ -5,9 +5,10 @@ from datetime import datetime, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy.orm import Session
 
+import models.database as db_module
 from collector.docker_client import DockerClient
 from collector.host import collect_host_metrics
-from models.database import ContainerMetrics, MetricsHistory, engine
+from models.database import ContainerDiskUsage, ContainerMetrics, MetricsHistory, engine
 from notifications.alert_engine import evaluate
 from ws.stream import manager
 
@@ -79,6 +80,27 @@ async def collect_and_store():
         logger.exception("Erro na coleta de métricas")
 
 
+async def collect_disk_usage():
+    try:
+        containers = await docker_client.list_containers_with_size()
+    except Exception:
+        logger.exception("Erro ao coletar uso de disco dos containers")
+        return
+
+    now = datetime.utcnow()
+    with Session(db_module.engine) as session:
+        for c in containers:
+            name = (c["Names"][0].lstrip("/") if c.get("Names") else c["Id"][:12])
+            session.add(ContainerDiskUsage(
+                collected_at=now,
+                container_id=c["Id"][:12],
+                container_name=name,
+                size_rw_mb=round((c.get("SizeRw") or 0) / 1024 ** 2, 1),
+                size_rootfs_mb=round((c.get("SizeRootFs") or 0) / 1024 ** 2, 1),
+            ))
+        session.commit()
+
+
 async def _cleanup():
     import os
     from models.database import Config
@@ -94,6 +116,7 @@ async def _cleanup():
     with Session(engine) as session:
         session.query(MetricsHistory).filter(MetricsHistory.collected_at < detailed_cutoff).delete()
         session.query(ContainerMetrics).filter(ContainerMetrics.collected_at < aggregated_cutoff).delete()
+        session.query(ContainerDiskUsage).filter(ContainerDiskUsage.collected_at < aggregated_cutoff).delete()
         session.commit()
 
 
@@ -103,7 +126,9 @@ def get_last_metrics() -> dict:
 
 def start_scheduler():
     scheduler.add_job(collect_and_store, "interval", seconds=30, id="collect", replace_existing=True)
+    scheduler.add_job(collect_disk_usage, "interval", minutes=10, id="disk_usage", replace_existing=True)
     scheduler.add_job(_cleanup, "interval", hours=1, id="cleanup", replace_existing=True)
     if not scheduler.running:
         scheduler.start()
     asyncio.ensure_future(collect_and_store())
+    asyncio.ensure_future(collect_disk_usage())

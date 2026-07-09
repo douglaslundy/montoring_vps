@@ -38,3 +38,34 @@ async def test_collect_and_store_salva_no_banco(test_db):
         c_row = session.query(ContainerMetrics).first()
         assert c_row is not None
         assert c_row.container_name == "test"
+
+
+@pytest.mark.asyncio
+async def test_collect_disk_usage_salva_no_banco(test_db, monkeypatch):
+    monkeypatch.setenv("JWT_SECRET", "test-secret-key")
+    mock_data = [
+        {"Id": "abc123def456", "Names": ["/logs-service"], "SizeRw": 13107200, "SizeRootFs": 356515840},
+        {"Id": "def456abc123", "Names": ["/db"], "SizeRw": 1048576, "SizeRootFs": 209715200},
+    ]
+
+    import collector.scheduler as sched
+    from sqlalchemy.orm import Session
+    from models.database import ContainerDiskUsage
+
+    with patch.object(sched.docker_client, "list_containers_with_size", AsyncMock(return_value=mock_data)):
+        await sched.collect_disk_usage()
+
+    with Session(test_db.engine) as session:
+        rows = session.query(ContainerDiskUsage).order_by(ContainerDiskUsage.size_rw_mb.desc()).all()
+    assert len(rows) == 2
+    assert rows[0].container_name == "logs-service"
+    assert rows[0].size_rw_mb == pytest.approx(12.5, abs=0.1)
+    assert rows[0].size_rootfs_mb == pytest.approx(340.0, abs=0.1)
+
+
+@pytest.mark.asyncio
+async def test_collect_disk_usage_erro_docker_nao_lanca_excecao(test_db, monkeypatch):
+    monkeypatch.setenv("JWT_SECRET", "test-secret-key")
+    import collector.scheduler as sched
+    with patch.object(sched.docker_client, "list_containers_with_size", AsyncMock(side_effect=Exception("socket indisponivel"))):
+        await sched.collect_disk_usage()  # não deve levantar
