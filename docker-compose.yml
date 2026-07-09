@@ -15,7 +15,7 @@ services:
       - RETENTION_DETAILED_DAYS=${RETENTION_DETAILED_DAYS:-7}
       - RETENTION_AGGREGATED_DAYS=${RETENTION_AGGREGATED_DAYS:-30}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       - vps_monitor_data:/app/data
