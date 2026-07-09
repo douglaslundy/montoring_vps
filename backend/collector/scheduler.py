@@ -60,7 +60,7 @@ async def collect_and_store():
                 ))
             session.commit()
 
-        active_alerts = await evaluate(host, containers)
+        active_alerts = await evaluate(host, containers, docker_client)
 
         payload = {
             "ts": now.isoformat() + "Z",

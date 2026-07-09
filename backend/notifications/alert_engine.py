@@ -191,7 +191,7 @@ def _notify_resolution(session: Session, log: AlertLog, rule: AlertRule):
             logger.exception("Erro ao enviar WhatsApp de resolução")
 
 
-def _evaluate_container_stopped(session: Session, rule: AlertRule, containers: list, now: datetime, vps_name: str):
+async def _evaluate_container_stopped(session: Session, rule: AlertRule, containers: list, now: datetime, vps_name: str, docker_client=None):
     """Avalia regra especial de container parado — uma instância por container."""
     for c in containers:
         if c.get("status") == "running":
@@ -211,6 +211,22 @@ def _evaluate_container_stopped(session: Session, rule: AlertRule, containers: l
         )
 
         if open_log is None:
+            contexto = None
+            container_id = c.get("id_full") or c.get("id")
+            if docker_client is not None and container_id:
+                try:
+                    inspect = await docker_client.container_inspect(container_id)
+                    state = inspect.get("State", {})
+                    contexto = {
+                        "exit_code": state.get("ExitCode"),
+                        "oom_killed": state.get("OOMKilled"),
+                        "erro": state.get("Error") or None,
+                        "finalizado_em": state.get("FinishedAt"),
+                    }
+                except Exception:
+                    logger.exception("Erro ao inspecionar container parado %s", name)
+                    contexto = None
+
             session.add(AlertLog(
                 rule_id=rule.id,
                 triggered_at=now,
@@ -220,6 +236,7 @@ def _evaluate_container_stopped(session: Session, rule: AlertRule, containers: l
                 threshold=1,
                 mensagem=container_mensagem,
                 vps_name=vps_name,
+                contexto=json.dumps(contexto) if contexto else None,
             ))
 
     # Resolve containers que voltaram a running OU que foram removidos
@@ -241,7 +258,7 @@ def _evaluate_container_stopped(session: Session, rule: AlertRule, containers: l
             log.resolved_at = now
 
 
-async def evaluate(metrics: dict, containers: list) -> list:
+async def evaluate(metrics: dict, containers: list, docker_client=None) -> list:
     """Avalia todas as regras ativas e retorna lista de alertas ativos."""
     now = datetime.utcnow()
     try:
@@ -254,7 +271,7 @@ async def evaluate(metrics: dict, containers: list) -> list:
             for rule in rules:
                 try:
                     if rule.metrica == "container_stopped":
-                        _evaluate_container_stopped(session, rule, containers, now, vps_name)
+                        await _evaluate_container_stopped(session, rule, containers, now, vps_name, docker_client)
                     else:
                         value = _get_metric_value(rule.metrica, metrics, containers)
                         if value is None:

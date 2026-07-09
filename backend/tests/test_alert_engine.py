@@ -238,3 +238,50 @@ def test_disco_alert_sem_dados_de_disco_grava_contexto_none(fresh_db):
     with Session(fresh_db) as s:
         log = s.query(AlertLog).filter(AlertLog.resolved_at.is_(None)).first()
     assert log.contexto is None
+
+
+def test_container_stopped_grava_contexto_com_motivo_real(fresh_db):
+    from unittest.mock import AsyncMock
+    from notifications.alert_engine import evaluate
+    add_rule(fresh_db, metrica="container_stopped", operador="==", threshold=1)
+
+    mock_dc = AsyncMock()
+    mock_dc.container_inspect = AsyncMock(return_value={
+        "State": {"ExitCode": 137, "OOMKilled": True, "Error": "", "FinishedAt": "2026-07-08T21:58:03Z"}
+    })
+    containers = [{"name": "worker", "status": "exited", "id_full": "dead123beef456"}]
+    asyncio.run(evaluate(make_metrics(), containers, mock_dc))
+
+    with Session(fresh_db) as s:
+        log = s.query(AlertLog).filter(AlertLog.resolved_at.is_(None)).first()
+    ctx = json.loads(log.contexto)
+    assert ctx["exit_code"] == 137
+    assert ctx["oom_killed"] is True
+    mock_dc.container_inspect.assert_awaited_once_with("dead123beef456")
+
+
+def test_container_stopped_sem_docker_client_grava_contexto_none(fresh_db):
+    from notifications.alert_engine import evaluate
+    add_rule(fresh_db, metrica="container_stopped", operador="==", threshold=1)
+    containers = [{"name": "worker", "status": "exited", "id_full": "dead123beef456"}]
+    asyncio.run(evaluate(make_metrics(), containers))  # sem docker_client, como os testes antigos
+
+    with Session(fresh_db) as s:
+        log = s.query(AlertLog).filter(AlertLog.resolved_at.is_(None)).first()
+    assert log.contexto is None
+
+
+def test_container_stopped_inspect_falha_nao_impede_alerta(fresh_db):
+    from unittest.mock import AsyncMock
+    from notifications.alert_engine import evaluate
+    add_rule(fresh_db, metrica="container_stopped", operador="==", threshold=1)
+
+    mock_dc = AsyncMock()
+    mock_dc.container_inspect = AsyncMock(side_effect=Exception("container ja removido"))
+    containers = [{"name": "worker", "status": "exited", "id_full": "dead123beef456"}]
+    result = asyncio.run(evaluate(make_metrics(), containers, mock_dc))
+
+    assert any("worker" in r["mensagem"] for r in result)
+    with Session(fresh_db) as s:
+        log = s.query(AlertLog).filter(AlertLog.resolved_at.is_(None)).first()
+    assert log.contexto is None
