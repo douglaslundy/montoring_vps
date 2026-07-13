@@ -11,7 +11,6 @@ def db_path(tmp_path):
 @pytest.fixture
 def test_db(db_path, monkeypatch):
     monkeypatch.setenv("DB_PATH", db_path)
-    monkeypatch.setenv("JWT_SECRET", "test-secret-key")
     import importlib
     import models.database as db_module
     importlib.reload(db_module)
