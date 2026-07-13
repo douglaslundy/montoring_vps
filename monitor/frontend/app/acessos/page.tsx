@@ -21,15 +21,10 @@ const RANGES: { value: Range; label: string; days: number }[] = [
 ];
 
 function fmtRelativeDay(day: string): string {
-  const today = new Date();
-  const todayStr = today.toISOString().slice(0, 10);
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayStr = yesterday.toISOString().slice(0, 10);
-  if (day === todayStr) return 'hoje';
-  if (day === yesterdayStr) return 'ontem';
-  const diffMs = today.getTime() - new Date(day + 'T00:00:00').getTime();
-  const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const diffDays = Math.round((Date.parse(todayStr) - Date.parse(day)) / 86400000);
+  if (diffDays === 0) return 'hoje';
+  if (diffDays === 1) return 'ontem';
   if (diffDays < 0) return day;
   return `há ${diffDays} dias`;
 }
