@@ -20,6 +20,20 @@ const RANGES: { value: Range; label: string; days: number }[] = [
   { value: '30d', label: '30 dias', days: 30 },
 ];
 
+function fmtRelativeDay(day: string): string {
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10);
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayStr = yesterday.toISOString().slice(0, 10);
+  if (day === todayStr) return 'hoje';
+  if (day === yesterdayStr) return 'ontem';
+  const diffMs = today.getTime() - new Date(day + 'T00:00:00').getTime();
+  const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+  if (diffDays < 0) return day;
+  return `há ${diffDays} dias`;
+}
+
 export default function AcessosPage() {
   const [range, setRange] = useState<Range>('7d');
   const [sistemaFiltro, setSistemaFiltro] = useState('');
@@ -158,7 +172,7 @@ export default function AcessosPage() {
                       )}
                     </div>
                   </td>
-                  <td style={{ padding: '10px 16px', color: 'var(--muted)', fontSize: 12 }}>{row.ultimo_acesso}</td>
+                  <td style={{ padding: '10px 16px', color: 'var(--muted)', fontSize: 12 }}>{fmtRelativeDay(row.ultimo_acesso)}</td>
                 </tr>
               ))
             )}
