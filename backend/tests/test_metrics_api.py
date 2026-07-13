@@ -63,7 +63,8 @@ def test_history_metrica_invalida(auth_client):
     assert r.status_code == 200
 
 
-def test_sem_autenticacao_401(test_db):
+def test_sem_autenticacao_401(test_db, monkeypatch):
+    monkeypatch.setenv("JWT_SECRET", "test-secret-32-chars-long-ok-yes")
     import limiter as limiter_mod
     importlib.reload(limiter_mod)
     import api.auth

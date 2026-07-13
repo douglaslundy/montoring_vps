@@ -14,11 +14,13 @@ services:
       - PUBLIC_URL=${PUBLIC_URL}
       - RETENTION_DETAILED_DAYS=${RETENTION_DETAILED_DAYS:-7}
       - RETENTION_AGGREGATED_DAYS=${RETENTION_AGGREGATED_DAYS:-30}
+      - TRAEFIK_ACCESS_LOG_PATH=/var/log/traefik/access.log
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       - vps_monitor_data:/app/data
+      - traefik_access_logs:/var/log/traefik:ro
     networks:
       - vps_monitor_net
     restart: unless-stopped
@@ -59,3 +61,8 @@ networks:
 
 volumes:
   vps_monitor_data:
+  # Criado/gerenciado pela stack do Traefik (fora deste repo). Requer que o
+  # Traefik tenha accessLog em JSON habilitado, gravando nesse volume, e que
+  # o nome do volume aqui bata com o nome real do volume do Traefik.
+  traefik_access_logs:
+    external: true

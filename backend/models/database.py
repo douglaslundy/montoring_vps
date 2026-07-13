@@ -2,7 +2,7 @@ import os
 from datetime import datetime
 from sqlalchemy import (
     create_engine, Column, Integer, Float, String,
-    DateTime, Text, text, ForeignKey
+    DateTime, Text, text, ForeignKey, Index
 )
 from sqlalchemy.orm import DeclarativeBase, Session
 
@@ -111,6 +111,49 @@ class ContainerActionLog(Base):
     acao = Column(String, nullable=False)
     sucesso = Column(Integer, default=1)
     erro = Column(Text, nullable=True)
+
+
+class AccessLog(Base):
+    __tablename__ = "access_log"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    accessed_at = Column(DateTime, nullable=False)
+    ip = Column(String, nullable=False)
+    sistema = Column(String, nullable=False)
+    path = Column(String, nullable=False)
+    method = Column(String, nullable=False)
+    status_code = Column(Integer)
+    user_agent = Column(Text, nullable=True)
+
+
+Index("ix_access_log_accessed_at", AccessLog.accessed_at)
+Index("ix_access_log_ip", AccessLog.ip)
+
+
+class AccessLogDaily(Base):
+    __tablename__ = "access_log_daily"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    day = Column(String, nullable=False)
+    ip = Column(String, nullable=False)
+    sistema = Column(String, nullable=False)
+    count = Column(Integer, nullable=False, default=0)
+
+
+Index("ix_access_log_daily_day", AccessLogDaily.day)
+Index("ix_access_log_daily_ip", AccessLogDaily.ip)
+
+
+class IpGeoCache(Base):
+    __tablename__ = "ip_geo_cache"
+    ip = Column(String, primary_key=True)
+    country = Column(String, nullable=True)
+    region = Column(String, nullable=True)
+    city = Column(String, nullable=True)
+    isp = Column(String, nullable=True)
+    org = Column(String, nullable=True)
+    lat = Column(Float, nullable=True)
+    lon = Column(Float, nullable=True)
+    is_private = Column(Integer, default=0)
+    looked_up_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
 class Config(Base):

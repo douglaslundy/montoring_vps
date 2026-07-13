@@ -131,3 +131,52 @@ def test_insert_container_action_log(test_db):
         fetched = session.query(test_db.ContainerActionLog).first()
     assert fetched.acao == "restart"
     assert fetched.sucesso == 1
+
+
+def test_tabela_access_log_criada(test_db):
+    with test_db.engine.connect() as conn:
+        result = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))
+        tables = {row[0] for row in result}
+    assert "access_log" in tables
+    assert "access_log_daily" in tables
+    assert "ip_geo_cache" in tables
+
+
+def test_insert_access_log(test_db):
+    from datetime import datetime
+    with Session(test_db.engine) as session:
+        session.add(test_db.AccessLog(
+            accessed_at=datetime.utcnow(),
+            ip="203.0.113.10",
+            sistema="app2.dlsistemas.com.br",
+            path="/api/pedidos",
+            method="GET",
+            status_code=200,
+            user_agent="Mozilla/5.0",
+        ))
+        session.commit()
+        fetched = session.query(test_db.AccessLog).first()
+    assert fetched.ip == "203.0.113.10"
+    assert fetched.sistema == "app2.dlsistemas.com.br"
+
+
+def test_insert_access_log_daily(test_db):
+    with Session(test_db.engine) as session:
+        session.add(test_db.AccessLogDaily(
+            day="2026-07-12", ip="203.0.113.10", sistema="app2.dlsistemas.com.br", count=5,
+        ))
+        session.commit()
+        fetched = session.query(test_db.AccessLogDaily).first()
+    assert fetched.count == 5
+
+
+def test_insert_ip_geo_cache(test_db):
+    from datetime import datetime
+    with Session(test_db.engine) as session:
+        session.add(test_db.IpGeoCache(
+            ip="203.0.113.10", country="Brazil", city="São Paulo",
+            is_private=0, looked_up_at=datetime.utcnow(),
+        ))
+        session.commit()
+        fetched = session.get(test_db.IpGeoCache, "203.0.113.10")
+    assert fetched.country == "Brazil"

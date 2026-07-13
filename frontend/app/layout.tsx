@@ -9,6 +9,7 @@ const NAV = [
   { href: '/containers', label: 'Containers', icon: '🐳' },
   { href: '/historico', label: 'Histórico', icon: '📈' },
   { href: '/alertas', label: 'Alertas', icon: '🔔' },
+  { href: '/acessos', label: 'Acessos', icon: '🌐' },
   { href: '/configuracoes', label: 'Configurações', icon: '⚙️' },
   { href: '/minha-conta', label: 'Meus Dados', icon: '👤' },
 ];

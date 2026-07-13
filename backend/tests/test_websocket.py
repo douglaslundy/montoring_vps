@@ -3,7 +3,8 @@ from fastapi.testclient import TestClient
 
 
 @pytest.fixture
-def client(test_db):
+def client(test_db, monkeypatch):
+    monkeypatch.setenv("JWT_SECRET", "test-secret-key")
     import main
     import importlib
     importlib.reload(main)

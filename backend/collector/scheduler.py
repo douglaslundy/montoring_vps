@@ -8,7 +8,8 @@ from sqlalchemy.orm import Session
 import models.database as db_module
 from collector.docker_client import DockerClient
 from collector.host import collect_host_metrics
-from models.database import ContainerDiskUsage, ContainerMetrics, MetricsHistory, engine
+from models.database import AccessLog, AccessLogDaily, ContainerDiskUsage, ContainerMetrics, MetricsHistory, engine
+from collector.access_log_tailer import tail_access_log
 from notifications.alert_engine import evaluate
 from ws.stream import manager
 
@@ -117,6 +118,8 @@ async def _cleanup():
         session.query(MetricsHistory).filter(MetricsHistory.collected_at < detailed_cutoff).delete()
         session.query(ContainerMetrics).filter(ContainerMetrics.collected_at < aggregated_cutoff).delete()
         session.query(ContainerDiskUsage).filter(ContainerDiskUsage.collected_at < aggregated_cutoff).delete()
+        session.query(AccessLog).filter(AccessLog.accessed_at < detailed_cutoff).delete()
+        session.query(AccessLogDaily).filter(AccessLogDaily.day < aggregated_cutoff.strftime("%Y-%m-%d")).delete()
         session.commit()
 
 
@@ -127,8 +130,10 @@ def get_last_metrics() -> dict:
 def start_scheduler():
     scheduler.add_job(collect_and_store, "interval", seconds=30, id="collect", replace_existing=True)
     scheduler.add_job(collect_disk_usage, "interval", minutes=10, id="disk_usage", replace_existing=True)
+    scheduler.add_job(tail_access_log, "interval", seconds=15, id="access_log_tail", replace_existing=True)
     scheduler.add_job(_cleanup, "interval", hours=1, id="cleanup", replace_existing=True)
     if not scheduler.running:
         scheduler.start()
     asyncio.ensure_future(collect_and_store())
     asyncio.ensure_future(collect_disk_usage())
+    asyncio.ensure_future(tail_access_log())

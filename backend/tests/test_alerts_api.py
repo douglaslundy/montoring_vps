@@ -11,11 +11,16 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(db_module, "engine", test_engine)
     db_module.init_db()
 
-    import os
     monkeypatch.setenv("JWT_SECRET", "test-secret-key-32-chars-minimum!!")
+    import importlib
+    import limiter as limiter_mod
+    importlib.reload(limiter_mod)
+    import api.auth
+    importlib.reload(api.auth)
+    import main
+    importlib.reload(main)
 
-    from main import app
-    return TestClient(app)
+    return TestClient(main.app)
 
 
 def get_token(client):
