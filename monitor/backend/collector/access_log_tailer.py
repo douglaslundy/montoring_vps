@@ -82,8 +82,8 @@ def _process_line(session: Session, line: str) -> None:
     if not isinstance(entry, dict):
         return
 
-    path = entry.get("RequestPath", "")
-    if _is_noise(path):
+    path = entry.get("RequestPath") or ""
+    if not path or _is_noise(path):
         return
 
     ip = entry.get("ClientHost")
@@ -97,7 +97,7 @@ def _process_line(session: Session, line: str) -> None:
         ip=ip,
         sistema=sistema,
         path=path,
-        method=entry.get("RequestMethod", ""),
+        method=entry.get("RequestMethod") or "",
         status_code=entry.get("DownstreamStatus"),
         user_agent=entry.get("request_User-Agent"),
     ))
@@ -125,7 +125,10 @@ async def tail_access_log() -> None:
         with open(path_obj, "r", encoding="utf-8", errors="replace") as f:
             f.seek(offset)
             for line in f:
-                _process_line(session, line)
+                try:
+                    _process_line(session, line)
+                except Exception:
+                    logger.warning("Falha ao processar linha do access log, pulando", exc_info=True)
             new_offset = f.tell()
 
         session.commit()

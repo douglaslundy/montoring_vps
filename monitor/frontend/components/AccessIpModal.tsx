@@ -107,6 +107,7 @@ export default function AccessIpModal({ ip, days, onClose }: Props) {
                       <tr key={s.sistema} style={{ borderBottom: '1px solid var(--border)' }}>
                         <td style={{ padding: '4px 0' }}>{s.sistema}</td>
                         <td style={{ padding: '4px 0', textAlign: 'right' }}>{s.count} acessos</td>
+                        <td style={{ padding: '4px 0', textAlign: 'right', color: 'var(--muted)' }}>{s.ultimo_acesso ?? '—'}</td>
                       </tr>
                     ))}
                   </tbody>

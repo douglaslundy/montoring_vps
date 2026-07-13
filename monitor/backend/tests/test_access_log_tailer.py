@@ -146,3 +146,26 @@ async def test_json_valido_mas_nao_objeto_nao_interrompe_processamento(test_db, 
     from sqlalchemy.orm import Session
     with Session(test_db.engine) as session:
         assert session.query(test_db.AccessLog).count() == 1
+
+
+@pytest.mark.asyncio
+async def test_request_path_nulo_nao_interrompe_processamento(test_db, tmp_path, monkeypatch):
+    log_file = tmp_path / "access.log"
+    linha_com_path_nulo = json.dumps({
+        "ClientHost": "203.0.113.10",
+        "RequestHost": "app2.dlsistemas.com.br",
+        "RequestPath": None,
+        "RequestMethod": "GET",
+        "DownstreamStatus": 200,
+        "time": datetime.utcnow().isoformat() + "Z",
+        "request_User-Agent": "Mozilla/5.0",
+    })
+    log_file.write_text(linha_com_path_nulo + "\n" + _traefik_line() + "\n", encoding="utf-8")
+    monkeypatch.setenv("TRAEFIK_ACCESS_LOG_PATH", str(log_file))
+
+    import collector.access_log_tailer as tailer
+    await tailer.tail_access_log()  # não deve levantar
+
+    from sqlalchemy.orm import Session
+    with Session(test_db.engine) as session:
+        assert session.query(test_db.AccessLog).count() == 1
