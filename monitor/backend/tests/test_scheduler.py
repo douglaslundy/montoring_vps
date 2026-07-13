@@ -4,7 +4,8 @@ from datetime import datetime
 
 
 @pytest.mark.asyncio
-async def test_collect_and_store_salva_no_banco(test_db):
+async def test_collect_and_store_salva_no_banco(test_db, monkeypatch):
+    monkeypatch.setenv("JWT_SECRET", "test-secret-key")
     mock_host = {
         "cpu": {"percent": 25.0, "load": [1.0, 0.8, 0.6], "cores": 4, "model": "Test CPU"},
         "ram": {"total_mb": 8192, "used_mb": 2048, "available_mb": 6144, "percent": 25.0},
@@ -20,7 +21,9 @@ async def test_collect_and_store_salva_no_banco(test_db):
          "net_rx_mb": 0, "net_tx_mb": 0, "restart_count": 0}
     ]
 
+    import importlib
     import collector.scheduler as sched
+    importlib.reload(sched)
     from sqlalchemy.orm import Session
     from models.database import MetricsHistory, ContainerMetrics
 
