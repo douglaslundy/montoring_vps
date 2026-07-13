@@ -41,6 +41,16 @@ funcionar em produção, é preciso, na stack do Traefik:
    precisa estar configurado corretamente para que `ClientHost` no log seja
    o IP real do visitante — fora do escopo desta entrega, mas assumido como
    pré-requisito para os IPs registrados fazerem sentido.
+5. **Rotação do arquivo bruto (importante):** o Traefik não rotaciona seu
+   próprio access log automaticamente — sem rotação, o arquivo cresce sem
+   limite e pode encher o disco. Este repositório inclui um config pronto
+   em `docker/traefik/access-log-logrotate.conf` (retenção de 15 dias,
+   1 rotação/dia, compressão das antigas). Instale-o em
+   `/etc/logrotate.d/` no host onde o Traefik roda — ver instruções no
+   próprio arquivo. Isso é independente da retenção do banco do monitor
+   (`retention_detailed_days`/`retention_aggregated_days`): a rotação do
+   arquivo bruto do Traefik limita o disco; a retenção do monitor limita o
+   que fica consultável na tela de Acessos.
 
 Sem esse arquivo presente, o coletor apenas loga um aviso uma vez e não
 grava nada (ver "Coletor", abaixo) — não impede o resto do monitor de
