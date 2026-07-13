@@ -132,3 +132,17 @@ async def test_arquivo_ausente_nao_lanca_excecao(test_db, tmp_path, monkeypatch)
     from sqlalchemy.orm import Session
     with Session(test_db.engine) as session:
         assert session.query(test_db.AccessLog).count() == 0
+
+
+@pytest.mark.asyncio
+async def test_json_valido_mas_nao_objeto_nao_interrompe_processamento(test_db, tmp_path, monkeypatch):
+    log_file = tmp_path / "access.log"
+    log_file.write_text("null\n" + _traefik_line() + "\n", encoding="utf-8")
+    monkeypatch.setenv("TRAEFIK_ACCESS_LOG_PATH", str(log_file))
+
+    import collector.access_log_tailer as tailer
+    await tailer.tail_access_log()
+
+    from sqlalchemy.orm import Session
+    with Session(test_db.engine) as session:
+        assert session.query(test_db.AccessLog).count() == 1

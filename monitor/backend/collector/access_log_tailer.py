@@ -79,6 +79,9 @@ def _process_line(session: Session, line: str) -> None:
     except json.JSONDecodeError:
         return
 
+    if not isinstance(entry, dict):
+        return
+
     path = entry.get("RequestPath", "")
     if _is_noise(path):
         return
