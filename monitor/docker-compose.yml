@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  monitor-backend:
+    build: ./backend
+    container_name: monitor-backend
+    environment:
+      - DB_PATH=/app/data/monitor.db
+      - PROC_BASE=/host/proc
+      - SYS_BASE=/host/sys
+      - JWT_SECRET=${JWT_SECRET}
+      - MONITOR_USER=${MONITOR_USER}
+      - MONITOR_PASSWORD=${MONITOR_PASSWORD}
+      - PUBLIC_URL=${PUBLIC_URL}
+      - RETENTION_DETAILED_DAYS=${RETENTION_DETAILED_DAYS:-7}
+      - RETENTION_AGGREGATED_DAYS=${RETENTION_AGGREGATED_DAYS:-30}
+      - TRAEFIK_ACCESS_LOG_PATH=/var/log/traefik/access.log
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - vps_monitor_data:/app/data
+      - traefik_access_logs:/var/log/traefik:ro
+    networks:
+      - vps_monitor_net
+    restart: unless-stopped
+
+  monitor-frontend:
+    build: ./frontend
+    container_name: monitor-frontend
+    networks:
+      - vps_monitor_net
+    restart: unless-stopped
+    depends_on:
+      - monitor-backend
+
+  monitor-nginx:
+    image: nginx:alpine
+    container_name: monitor-nginx
+    volumes:
+      - ./docker/nginx/monitor.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - vps_monitor_net
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.vps-monitor.rule=Host(`monitor.dlsistemas.com.br`)"
+      - "traefik.http.routers.vps-monitor.entrypoints=websecure"
+      - "traefik.http.routers.vps-monitor.tls.certresolver=letsencrypt"
+      - "traefik.http.services.vps-monitor.loadbalancer.server.port=80"
+      - "traefik.docker.network=proxy"
+    restart: unless-stopped
+    depends_on:
+      - monitor-frontend
+      - monitor-backend
+
+networks:
+  vps_monitor_net: {}
+  proxy:
+    external: true
+
+volumes:
+  vps_monitor_data:
+  # Criado/gerenciado pela stack do Traefik (fora deste repo). Requer que o
+  # Traefik tenha accessLog em JSON habilitado, gravando nesse volume, e que
+  # o nome do volume aqui bata com o nome real do volume do Traefik.
+  traefik_access_logs:
+    external: true
