@@ -2,7 +2,7 @@ import asyncio
 from datetime import datetime
 import pytest
 from sqlalchemy.orm import Session
-from models.database import AlertLog, AlertRule, Config, engine, init_db
+from models.database import AlertLog, AlertNotification, AlertRule, Config, engine, init_db
 
 
 @pytest.fixture(autouse=True)
@@ -285,3 +285,96 @@ def test_container_stopped_inspect_falha_nao_impede_alerta(fresh_db):
     with Session(fresh_db) as s:
         log = s.query(AlertLog).filter(AlertLog.resolved_at.is_(None)).first()
     assert log.contexto is None
+
+
+from unittest.mock import patch
+
+
+def enable_channels(engine):
+    with Session(engine) as s:
+        s.merge(Config(key="smtp_enabled", value="1"))
+        s.merge(Config(key="evolution_enabled", value="1"))
+        s.commit()
+
+
+def get_notifications(engine, alert_log_id=None):
+    with Session(engine) as s:
+        q = s.query(AlertNotification)
+        if alert_log_id is not None:
+            q = q.filter(AlertNotification.alert_log_id == alert_log_id)
+        return q.all()
+
+
+def test_alerta_flapping_ainda_notifica_antes_de_resolver(fresh_db):
+    """Bug original: duracao_minutos=0 só notificava a partir do 2º ciclo
+    do alerta aberto; se ele resolvesse no ciclo seguinte, nunca notificava."""
+    from notifications.alert_engine import evaluate
+    enable_channels(fresh_db)
+    add_rule(fresh_db, threshold=80.0, metrica="disk_percent", operador=">",
+             duracao_minutos=0, cooldown_minutos=120, canal_whatsapp=1, canal_email=0)
+    with patch("notifications.whatsapp_service.send_alert") as mock_send:
+        asyncio.run(evaluate(make_metrics(disk=90.0), []))
+        with Session(fresh_db) as s:
+            log = s.query(AlertLog).first()
+        asyncio.run(evaluate(make_metrics(disk=70.0), []))  # resolve no ciclo seguinte
+    disparos = [n for n in get_notifications(fresh_db, log.id) if n.tipo == "disparo"]
+    assert len(disparos) == 1
+    assert disparos[0].status == "enviado"
+    assert disparos[0].canal == "whatsapp"
+    mock_send.assert_called_once()
+
+
+def test_canal_marcado_mas_desabilitado_globalmente_grava_status_desabilitado(fresh_db):
+    from notifications.alert_engine import evaluate
+    add_rule(fresh_db, threshold=80.0, metrica="disk_percent", operador=">",
+             duracao_minutos=0, canal_whatsapp=1, canal_email=0)
+    asyncio.run(evaluate(make_metrics(disk=90.0), []))
+    with Session(fresh_db) as s:
+        log = s.query(AlertLog).first()
+    notifs = get_notifications(fresh_db, log.id)
+    assert len(notifs) == 1
+    assert notifs[0].canal == "whatsapp"
+    assert notifs[0].status == "desabilitado"
+    assert notifs[0].erro is None
+
+
+def test_erro_no_envio_grava_status_falhou_com_mensagem(fresh_db):
+    from notifications.alert_engine import evaluate
+    enable_channels(fresh_db)
+    add_rule(fresh_db, threshold=80.0, metrica="disk_percent", operador=">",
+             duracao_minutos=0, canal_whatsapp=1, canal_email=0)
+    with patch("notifications.whatsapp_service.send_alert", side_effect=Exception("evolution indisponivel")):
+        asyncio.run(evaluate(make_metrics(disk=90.0), []))
+    with Session(fresh_db) as s:
+        log = s.query(AlertLog).first()
+    notifs = get_notifications(fresh_db, log.id)
+    assert notifs[0].status == "falhou"
+    assert "evolution indisponivel" in notifs[0].erro
+
+
+def test_canal_nao_marcado_na_regra_nao_gera_notificacao(fresh_db):
+    from notifications.alert_engine import evaluate
+    enable_channels(fresh_db)
+    add_rule(fresh_db, threshold=80.0, metrica="disk_percent", operador=">",
+             duracao_minutos=0, canal_whatsapp=0, canal_email=0)
+    asyncio.run(evaluate(make_metrics(disk=90.0), []))
+    with Session(fresh_db) as s:
+        log = s.query(AlertLog).first()
+    assert get_notifications(fresh_db, log.id) == []
+
+
+def test_resolucao_grava_notificacao_enviada(fresh_db):
+    from notifications.alert_engine import evaluate
+    enable_channels(fresh_db)
+    add_rule(fresh_db, threshold=80.0, metrica="disk_percent", operador=">",
+             duracao_minutos=0, cooldown_minutos=0, canal_whatsapp=1, canal_email=0)
+    with patch("notifications.whatsapp_service.send_alert"):
+        asyncio.run(evaluate(make_metrics(disk=90.0), []))
+        with Session(fresh_db) as s:
+            log = s.query(AlertLog).first()
+        with patch("notifications.whatsapp_service.send_resolution") as mock_res:
+            asyncio.run(evaluate(make_metrics(disk=70.0), []))
+    resolucoes = [n for n in get_notifications(fresh_db, log.id) if n.tipo == "resolucao"]
+    assert len(resolucoes) == 1
+    assert resolucoes[0].status == "enviado"
+    mock_res.assert_called_once()
