@@ -1,4 +1,5 @@
 import asyncio
+import os
 import httpx
 from typing import Optional
 
@@ -24,10 +25,13 @@ def calculate_cpu_percent(stats: dict) -> float:
 
 
 class DockerClient:
-    def __init__(self, socket_path: str = "/var/run/docker.sock"):
-        self._socket = socket_path
+    def __init__(self, socket_path: Optional[str] = None, proxy_url: Optional[str] = None):
+        self._socket = socket_path or os.environ.get("DOCKER_SOCKET_PATH", "/var/run/docker.sock")
+        self._proxy_url = proxy_url or os.environ.get("DOCKER_PROXY_URL")
 
     def _client(self) -> httpx.AsyncClient:
+        if self._proxy_url:
+            return httpx.AsyncClient(base_url=self._proxy_url, timeout=10.0)
         return httpx.AsyncClient(
             transport=httpx.AsyncHTTPTransport(uds=self._socket),
             base_url="http://localhost",

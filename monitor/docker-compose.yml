@@ -1,6 +1,18 @@
 version: '3.8'
 
 services:
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    container_name: vps-monitor-socket-proxy
+    environment:
+      - CONTAINERS=1
+      - POST=1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - vps_monitor_net
+    restart: unless-stopped
+
   monitor-backend:
     build: ./backend
     container_name: monitor-backend
@@ -15,8 +27,8 @@ services:
       - RETENTION_DETAILED_DAYS=${RETENTION_DETAILED_DAYS:-7}
       - RETENTION_AGGREGATED_DAYS=${RETENTION_AGGREGATED_DAYS:-30}
       - TRAEFIK_ACCESS_LOG_PATH=/var/log/traefik/access.log
+      - DOCKER_PROXY_URL=http://vps-monitor-socket-proxy:2375
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       - vps_monitor_data:/app/data
@@ -24,6 +36,8 @@ services:
     networks:
       - vps_monitor_net
     restart: unless-stopped
+    depends_on:
+      - docker-socket-proxy
 
   monitor-frontend:
     build: ./frontend
