@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -6,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from api.auth import verify_token_header
 from collector.geoip import lookup_ip
+from collector.scheduler import docker_client
 from models.database import AccessLog, AccessLogDaily, get_session
 
 router = APIRouter(prefix="/api/access-logs", dependencies=[Depends(verify_token_header)])
@@ -97,6 +99,25 @@ def summary_por_sistema(
 def sistemas(session: Session = Depends(get_session)):
     rows = session.query(AccessLogDaily.sistema).distinct().order_by(AccessLogDaily.sistema).all()
     return [r[0] for r in rows]
+
+
+_TRAEFIK_RULE_LABEL_RE = re.compile(r"^traefik\.http\.routers\.[^.]+\.rule$")
+_HOST_RE = re.compile(r"Host\(`([^`]+)`\)")
+
+
+@router.get("/container-para-sistema")
+async def container_para_sistema(sistema: str):
+    containers = await docker_client.list_containers()
+    for container in containers:
+        labels = container.get("Labels") or {}
+        for key, rule in labels.items():
+            if not _TRAEFIK_RULE_LABEL_RE.match(key):
+                continue
+            if sistema in _HOST_RE.findall(rule):
+                names = container.get("Names") or []
+                name = names[0].lstrip("/") if names else container["Id"][:12]
+                return {"container_name": name}
+    return {"container_name": None}
 
 
 @router.get("/ip/{ip}")

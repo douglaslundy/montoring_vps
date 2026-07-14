@@ -163,3 +163,55 @@ def test_summary_por_sistema_sem_autenticacao_401():
     import main
     client = TestClient(main.app)
     assert client.get("/api/access-logs/summary-por-sistema").status_code == 401
+
+
+def test_container_para_sistema_acha_pelo_host_label(auth_client):
+    client, _ = auth_client
+    fake_containers = [
+        {
+            "Id": "abc123def456",
+            "Names": ["/circuitodascorridas-app"],
+            "Labels": {
+                "traefik.enable": "true",
+                "traefik.http.routers.circuitodascorridas.rule": "Host(`circuitodascorridas.dlsistemas.com.br`)",
+            },
+        },
+        {"Id": "def456abc123", "Names": ["/outro"], "Labels": {}},
+    ]
+    with patch("api.access_logs.docker_client") as mock_dc:
+        mock_dc.list_containers = AsyncMock(return_value=fake_containers)
+        r = client.get("/api/access-logs/container-para-sistema?sistema=circuitodascorridas.dlsistemas.com.br")
+    assert r.status_code == 200
+    assert r.json() == {"container_name": "circuitodascorridas-app"}
+
+
+def test_container_para_sistema_multiplos_hosts_na_mesma_regra(auth_client):
+    client, _ = auth_client
+    fake_containers = [
+        {
+            "Id": "abc123def456",
+            "Names": ["/app-multi"],
+            "Labels": {
+                "traefik.http.routers.multi.rule": "Host(`a.dlsistemas.com.br`) || Host(`b.dlsistemas.com.br`)",
+            },
+        },
+    ]
+    with patch("api.access_logs.docker_client") as mock_dc:
+        mock_dc.list_containers = AsyncMock(return_value=fake_containers)
+        r = client.get("/api/access-logs/container-para-sistema?sistema=b.dlsistemas.com.br")
+    assert r.json() == {"container_name": "app-multi"}
+
+
+def test_container_para_sistema_nao_encontrado_retorna_null(auth_client):
+    client, _ = auth_client
+    with patch("api.access_logs.docker_client") as mock_dc:
+        mock_dc.list_containers = AsyncMock(return_value=[])
+        r = client.get("/api/access-logs/container-para-sistema?sistema=inexistente.com.br")
+    assert r.json() == {"container_name": None}
+
+
+def test_container_para_sistema_sem_autenticacao_401():
+    from fastapi.testclient import TestClient
+    import main
+    client = TestClient(main.app)
+    assert client.get("/api/access-logs/container-para-sistema?sistema=x.com").status_code == 401
