@@ -4,7 +4,7 @@ import LineChart from './LineChart';
 import api from '../lib/api';
 
 type Periodo = 'dia' | 'mes';
-type MetricaRecurso = 'cpu' | 'ram' | 'net_rx' | 'net_tx';
+type MetricaRecurso = 'cpu' | 'ram';
 
 interface Ponto { ts: string; value: number | null; }
 interface PontoRecurso {
@@ -18,8 +18,6 @@ interface PontoRecurso {
 const METRICAS_RECURSO: { value: MetricaRecurso; label: string; unit: string; color: string; campo: keyof Omit<PontoRecurso, 'ts'> }[] = [
   { value: 'cpu',    label: 'CPU',     unit: '%',  color: 'var(--accent)',  campo: 'cpu_percent' },
   { value: 'ram',    label: 'RAM',     unit: '%',  color: 'var(--info)',    campo: 'mem_percent' },
-  { value: 'net_rx', label: 'Rede ↓', unit: ' MB', color: 'var(--success)', campo: 'net_rx_mb' },
-  { value: 'net_tx', label: 'Rede ↑', unit: ' MB', color: '#a78bfa',        campo: 'net_tx_mb' },
 ];
 
 function hojeISO(): string {
@@ -64,19 +62,24 @@ export default function AccessProjectCharts() {
     finally { setLoading(false); }
   }, [projeto, paramsPeriodo]);
 
-  const loadRecursos = useCallback(async () => {
-    if (!projeto) { setContainerName(null); setRecursos([]); return; }
+  const resolveContainer = useCallback(async () => {
+    if (!projeto) { setContainerName(null); return; }
     try {
       const r = await api.get('/access-logs/container-para-sistema', { params: { sistema: projeto } });
-      const nome = r.data?.container_name ?? null;
-      setContainerName(nome);
-      if (!nome) { setRecursos([]); return; }
-      const rh = await api.get('/metrics/container-history', { params: { container_name: nome, ...paramsPeriodo() } });
+      setContainerName(r.data?.container_name ?? null);
+    } catch { setContainerName(null); }
+  }, [projeto]);
+
+  const loadRecursos = useCallback(async () => {
+    if (!containerName) { setRecursos([]); return; }
+    try {
+      const rh = await api.get('/metrics/container-history', { params: { container_name: containerName, ...paramsPeriodo() } });
       setRecursos(rh.data.data ?? []);
-    } catch { setContainerName(null); setRecursos([]); }
-  }, [projeto, paramsPeriodo]);
+    } catch { setRecursos([]); }
+  }, [containerName, paramsPeriodo]);
 
   useEffect(() => { loadAcessos(); }, [loadAcessos]);
+  useEffect(() => { resolveContainer(); }, [resolveContainer]);
   useEffect(() => { loadRecursos(); }, [loadRecursos]);
 
   const tabBtn = (active: boolean): React.CSSProperties => ({

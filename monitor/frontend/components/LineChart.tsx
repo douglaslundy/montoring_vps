@@ -21,7 +21,9 @@ export default function LineChart({
   const gradientId = `gradient-${uid.replace(/:/g, '')}`;
   const formatted = data.map((d) => ({
     ...d,
-    time: new Date(d.ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+    time: d.ts.includes('T')
+      ? new Date(d.ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+      : new Date(d.ts).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
   }));
 
   return (
