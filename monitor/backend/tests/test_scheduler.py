@@ -110,3 +110,27 @@ async def test_cleanup_remove_access_log_e_daily_antigos(test_db, monkeypatch):
     assert access_rows[0].path == "/api/y"
     assert len(daily_rows) == 1
     assert daily_rows[0].day == recent_day
+
+
+@pytest.mark.asyncio
+async def test_cleanup_remove_access_log_hourly_antigo(test_db, monkeypatch):
+    monkeypatch.setenv("JWT_SECRET", "test-secret-key")
+    from datetime import datetime, timedelta
+    from sqlalchemy.orm import Session
+
+    old_hour = (datetime.utcnow() - timedelta(days=10)).strftime("%Y-%m-%d %H")
+    recent_hour = datetime.utcnow().strftime("%Y-%m-%d %H")
+    with Session(test_db.engine) as session:
+        session.add(test_db.AccessLogHourly(hour=old_hour, sistema="app2.dlsistemas.com.br", count=3))
+        session.add(test_db.AccessLogHourly(hour=recent_hour, sistema="app2.dlsistemas.com.br", count=1))
+        session.commit()
+
+    import importlib
+    import collector.scheduler as sched
+    importlib.reload(sched)
+    await sched._cleanup()
+
+    with Session(test_db.engine) as session:
+        rows = session.query(test_db.AccessLogHourly).all()
+    assert len(rows) == 1
+    assert rows[0].hour == recent_hour

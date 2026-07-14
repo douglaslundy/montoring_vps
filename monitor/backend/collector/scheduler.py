@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 import models.database as db_module
 from collector.docker_client import DockerClient
 from collector.host import collect_host_metrics
-from models.database import AccessLog, AccessLogDaily, ContainerDiskUsage, ContainerMetrics, MetricsHistory, engine
+from models.database import AccessLog, AccessLogDaily, AccessLogHourly, ContainerDiskUsage, ContainerMetrics, MetricsHistory, engine
 from collector.access_log_tailer import tail_access_log
 from notifications.alert_engine import evaluate
 from ws.stream import manager
@@ -119,6 +119,7 @@ async def _cleanup():
         session.query(ContainerMetrics).filter(ContainerMetrics.collected_at < aggregated_cutoff).delete()
         session.query(ContainerDiskUsage).filter(ContainerDiskUsage.collected_at < aggregated_cutoff).delete()
         session.query(AccessLog).filter(AccessLog.accessed_at < detailed_cutoff).delete()
+        session.query(AccessLogHourly).filter(AccessLogHourly.hour < detailed_cutoff.strftime("%Y-%m-%d %H")).delete()
         session.query(AccessLogDaily).filter(AccessLogDaily.day < aggregated_cutoff.strftime("%Y-%m-%d")).delete()
         session.commit()
 
