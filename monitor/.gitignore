@@ -8,3 +8,4 @@ node_modules/
 *.db-wal
 *.db-shm
 .superpowers/
+.worktrees/
