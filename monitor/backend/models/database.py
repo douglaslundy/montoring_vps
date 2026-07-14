@@ -101,6 +101,20 @@ class AlertLog(Base):
     last_notified_at = Column(DateTime, nullable=True)
 
 
+class AlertNotification(Base):
+    __tablename__ = "alert_notification"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    alert_log_id = Column(Integer, ForeignKey("alert_log.id"), nullable=False)
+    canal = Column(String, nullable=False)       # "email" | "whatsapp"
+    tipo = Column(String, nullable=False)        # "disparo" | "resolucao"
+    status = Column(String, nullable=False)      # "enviado" | "falhou" | "desabilitado"
+    erro = Column(Text, nullable=True)
+    tentativa_em = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+Index("ix_alert_notification_alert_log_id", AlertNotification.alert_log_id)
+
+
 class ContainerActionLog(Base):
     __tablename__ = "container_action_log"
     id = Column(Integer, primary_key=True, autoincrement=True)

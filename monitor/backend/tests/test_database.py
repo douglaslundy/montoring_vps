@@ -198,3 +198,32 @@ def test_insert_access_log_hourly(test_db):
         fetched = session.query(test_db.AccessLogHourly).first()
     assert fetched.count == 5
     assert fetched.hour == "2026-07-12 14"
+
+
+def test_tabela_alert_notification_criada(test_db):
+    with test_db.engine.connect() as conn:
+        result = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))
+        tables = {row[0] for row in result}
+    assert "alert_notification" in tables
+
+
+def test_insert_alert_notification(test_db):
+    from datetime import datetime
+    with Session(test_db.engine) as session:
+        log = test_db.AlertLog(
+            rule_id=1, triggered_at=datetime.utcnow(), severidade="critico",
+            metrica="disk_percent", mensagem="teste",
+        )
+        session.add(log)
+        session.commit()
+        session.refresh(log)
+        log_id = log.id
+        session.add(test_db.AlertNotification(
+            alert_log_id=log_id, canal="whatsapp", tipo="disparo",
+            status="enviado", tentativa_em=datetime.utcnow(),
+        ))
+        session.commit()
+        fetched = session.query(test_db.AlertNotification).first()
+    assert fetched.canal == "whatsapp"
+    assert fetched.status == "enviado"
+    assert fetched.alert_log_id == log_id
