@@ -215,3 +215,67 @@ def test_container_para_sistema_sem_autenticacao_401():
     import main
     client = TestClient(main.app)
     assert client.get("/api/access-logs/container-para-sistema?sistema=x.com").status_code == 401
+
+
+def _seed_hourly(db, hour, sistema, count):
+    with Session(db.engine) as session:
+        session.add(db.AccessLogHourly(hour=hour, sistema=sistema, count=count))
+        session.commit()
+
+
+def test_timeseries_hour_ultimas_12h(auth_client):
+    client, db = auth_client
+    now = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
+    _seed_hourly(db, now.strftime("%Y-%m-%d %H"), "app2.dlsistemas.com.br", 7)
+    _seed_hourly(db, (now - timedelta(hours=1)).strftime("%Y-%m-%d %H"), "app2.dlsistemas.com.br", 3)
+
+    r = client.get("/api/access-logs/timeseries?sistema=app2.dlsistemas.com.br&granularity=hour")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["granularity"] == "hour"
+    assert len(data["data"]) == 12
+    assert data["data"][-1]["value"] == 7
+    assert data["data"][-2]["value"] == 3
+    assert data["data"][0]["value"] == 0
+
+
+def test_timeseries_hour_dia_especifico(auth_client):
+    client, db = auth_client
+    day_dt = datetime.utcnow() - timedelta(days=2)
+    day = day_dt.strftime("%Y-%m-%d")
+    _seed_hourly(db, f"{day} 09", "app2.dlsistemas.com.br", 4)
+    _seed_hourly(db, f"{day} 15", "app2.dlsistemas.com.br", 6)
+
+    r = client.get(f"/api/access-logs/timeseries?sistema=app2.dlsistemas.com.br&granularity=hour&day={day}")
+    data = r.json()
+    assert len(data["data"]) == 24
+    assert data["data"][9]["value"] == 4
+    assert data["data"][15]["value"] == 6
+    assert data["data"][0]["value"] == 0
+
+
+def test_timeseries_day_mes_passado_completo(auth_client):
+    client, db = auth_client
+    now = datetime.utcnow()
+    ultimo_dia_mes_anterior = now.replace(day=1) - timedelta(days=1)
+    mes_anterior = ultimo_dia_mes_anterior.strftime("%Y-%m")
+    dias_no_mes = ultimo_dia_mes_anterior.day
+
+    _seed_daily(db, f"{mes_anterior}-01", "203.0.113.10", "app2.dlsistemas.com.br", 10)
+    _seed_daily(db, ultimo_dia_mes_anterior.strftime("%Y-%m-%d"), "203.0.113.10", "app2.dlsistemas.com.br", 20)
+
+    r = client.get(f"/api/access-logs/timeseries?sistema=app2.dlsistemas.com.br&granularity=day&month={mes_anterior}")
+    data = r.json()
+    assert data["granularity"] == "day"
+    assert len(data["data"]) == dias_no_mes
+    primeiro = next(d for d in data["data"] if d["ts"] == f"{mes_anterior}-01")
+    assert primeiro["value"] == 10
+    ultimo = next(d for d in data["data"] if d["ts"] == ultimo_dia_mes_anterior.strftime("%Y-%m-%d"))
+    assert ultimo["value"] == 20
+
+
+def test_timeseries_sem_autenticacao_401():
+    from fastapi.testclient import TestClient
+    import main
+    client = TestClient(main.app)
+    assert client.get("/api/access-logs/timeseries?sistema=x.com").status_code == 401

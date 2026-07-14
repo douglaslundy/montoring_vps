@@ -6,9 +6,10 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from api.auth import verify_token_header
+from api.time_buckets import daily_buckets, hourly_buckets
 from collector.geoip import lookup_ip
 from collector.scheduler import docker_client
-from models.database import AccessLog, AccessLogDaily, get_session
+from models.database import AccessLog, AccessLogDaily, AccessLogHourly, get_session
 
 router = APIRouter(prefix="/api/access-logs", dependencies=[Depends(verify_token_header)])
 
@@ -170,5 +171,45 @@ async def ip_detail(
                 "accessed_at": r.accessed_at.isoformat() + "Z",
             }
             for r in recentes
+        ],
+    }
+
+
+@router.get("/timeseries")
+def timeseries(
+    sistema: str,
+    granularity: str = Query("hour"),
+    day: Optional[str] = None,
+    month: Optional[str] = None,
+    session: Session = Depends(get_session),
+):
+    if granularity == "day":
+        buckets = daily_buckets(month)
+        rows = (
+            session.query(AccessLogDaily)
+            .filter(AccessLogDaily.sistema == sistema, AccessLogDaily.day.in_(buckets))
+            .all()
+        )
+        totals: dict[str, int] = {}
+        for r in rows:
+            totals[r.day] = totals.get(r.day, 0) + r.count
+        return {
+            "granularity": "day",
+            "data": [{"ts": b, "value": totals.get(b, 0)} for b in buckets],
+        }
+
+    hours = hourly_buckets(day)
+    keys = [h.strftime("%Y-%m-%d %H") for h in hours]
+    rows = (
+        session.query(AccessLogHourly)
+        .filter(AccessLogHourly.sistema == sistema, AccessLogHourly.hour.in_(keys))
+        .all()
+    )
+    totals = {r.hour: r.count for r in rows}
+    return {
+        "granularity": "hour",
+        "data": [
+            {"ts": h.strftime("%Y-%m-%dT%H:00:00") + "Z", "value": totals.get(key, 0)}
+            for h, key in zip(hours, keys)
         ],
     }
