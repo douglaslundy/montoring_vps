@@ -141,6 +141,22 @@ usado no restante do arquivo).
   de cada canal em `notificacoes` — dá visibilidade imediata sem precisar
   trocar de aba.
 
+## 6b. Fix adicional: "Container Parado" nunca notifica
+
+Durante a implementação foi identificado um segundo bug de mesma natureza:
+`_evaluate_container_stopped` (`backend/notifications/alert_engine.py`) cria
+e resolve `AlertLog` para containers parados, mas **nunca chama
+`_notify_alert` nem `_notify_resolution`** — a regra padrão "Container
+Parado" (severidade crítico) não notifica em nenhuma circunstância, não só
+em flapping rápido. Corrigido no mesmo esforço, por ser a mesma causa raiz
+(caminho de avaliação que não aciona o motor de notificação) e reaproveitar
+a mesma infraestrutura de `AlertNotification`:
+- Ao criar o `AlertLog` de um container parado, chama `_notify_alert`
+  imediatamente (regra tem `duracao_minutos = 0` e `cooldown_minutos = 0`,
+  então duration_ok e cooldown_ok já são satisfeitos na criação).
+- Ao marcar `resolved_at` (container voltou a rodar ou foi removido), chama
+  `_notify_resolution`.
+
 ## 6. Retenção
 
 `_cleanup()` (`backend/collector/scheduler.py`) passa a apagar
