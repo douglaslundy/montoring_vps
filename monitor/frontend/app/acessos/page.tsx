@@ -1,18 +1,13 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import api from '../../lib/api';
 import AccessIpModal from '../../components/AccessIpModal';
+import AccessProjectCharts from '../../components/AccessProjectCharts';
 
 type Range = '24h' | '7d' | '30d';
 
-interface SistemaCount { sistema: string; count: number; }
-interface AccessSummaryRow {
-  ip: string;
-  total_acessos: number;
-  sistemas: SistemaCount[];
-  primeiro_acesso: string;
-  ultimo_acesso: string;
-}
+interface IpCount { ip: string; count: number; ultimo_acesso: string; }
+interface SistemaSummaryRow { sistema: string; total_acessos: number; ips: IpCount[]; }
 
 const RANGES: { value: Range; label: string; days: number }[] = [
   { value: '24h', label: '24 horas', days: 1 },
@@ -31,39 +26,37 @@ function fmtRelativeDay(day: string): string {
 
 export default function AcessosPage() {
   const [range, setRange] = useState<Range>('7d');
-  const [sistemaFiltro, setSistemaFiltro] = useState('');
   const [ipFiltro, setIpFiltro] = useState('');
-  const [sistemas, setSistemas] = useState<string[]>([]);
-  const [rows, setRows] = useState<AccessSummaryRow[]>([]);
+  const [rows, setRows] = useState<SistemaSummaryRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
   const [ipSelecionado, setIpSelecionado] = useState<string | null>(null);
 
   const days = RANGES.find(r => r.value === range)!.days;
-
-  const loadSistemas = useCallback(async () => {
-    try {
-      const r = await api.get('/access-logs/sistemas');
-      setSistemas(r.data ?? []);
-    } catch { setSistemas([]); }
-  }, []);
 
   const loadSummary = useCallback(async () => {
     setLoading(true);
     try {
       const params: Record<string, string | number> = { days };
-      if (sistemaFiltro) params.sistema = sistemaFiltro;
       if (ipFiltro) params.ip = ipFiltro;
-      const r = await api.get('/access-logs/summary', { params });
+      const r = await api.get('/access-logs/summary-por-sistema', { params });
       setRows(r.data ?? []);
     } catch { setRows([]); }
     finally { setLoading(false); }
-  }, [days, sistemaFiltro, ipFiltro]);
+  }, [days, ipFiltro]);
 
-  useEffect(() => { loadSistemas(); }, [loadSistemas]);
   useEffect(() => {
     const t = setTimeout(loadSummary, 300);
     return () => clearTimeout(t);
   }, [loadSummary]);
+
+  const toggleExpandido = (sistema: string) => {
+    setExpandidos(prev => {
+      const next = new Set(prev);
+      if (next.has(sistema)) next.delete(sistema); else next.add(sistema);
+      return next;
+    });
+  };
 
   const tabBtn = (active: boolean): React.CSSProperties => ({
     padding: '6px 14px', borderRadius: 6, border: '1px solid var(--border)',
@@ -90,21 +83,6 @@ export default function AcessosPage() {
         </div>
 
         <div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6, textTransform: 'uppercase' }}>Sistema</div>
-          <select
-            value={sistemaFiltro}
-            onChange={(e) => setSistemaFiltro(e.target.value)}
-            style={{
-              padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)',
-              background: 'var(--surface)', color: 'var(--text)', fontSize: 12,
-            }}
-          >
-            <option value="">Todos</option>
-            {sistemas.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </div>
-
-        <div>
           <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6, textTransform: 'uppercase' }}>Filtrar por IP</div>
           <input
             placeholder="ex: 203.0.113"
@@ -118,11 +96,11 @@ export default function AcessosPage() {
         </div>
       </div>
 
-      <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 32 }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
-              {['IP', 'Acessos', 'Sistemas acessados', 'Último acesso'].map((h) => (
+              {['Sistema', 'Total de acessos', ''].map((h) => (
                 <th key={h} style={{
                   padding: '10px 16px', textAlign: 'left', fontSize: 11,
                   color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase',
@@ -133,47 +111,67 @@ export default function AcessosPage() {
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={4} style={{ padding: 24, textAlign: 'center', color: 'var(--muted)' }}>
+                <td colSpan={3} style={{ padding: 24, textAlign: 'center', color: 'var(--muted)' }}>
                   {loading ? 'Carregando...' : 'Nenhum acesso registrado no período.'}
                 </td>
               </tr>
             ) : (
-              rows.map((row) => (
-                <tr key={row.ip} style={{ borderBottom: '1px solid var(--border)' }}>
-                  <td style={{ padding: '10px 16px' }}>
-                    <button
-                      onClick={() => setIpSelecionado(row.ip)}
-                      style={{
-                        background: 'none', border: 'none', color: 'var(--accent)',
-                        cursor: 'pointer', fontFamily: 'monospace', fontSize: 13, padding: 0,
-                      }}
-                    >
-                      {row.ip}
-                    </button>
-                  </td>
-                  <td style={{ padding: '10px 16px' }}>{row.total_acessos}</td>
-                  <td style={{ padding: '10px 16px' }}>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      {row.sistemas.slice(0, 3).map(s => (
-                        <span key={s.sistema} style={{
-                          fontSize: 11, padding: '2px 8px', borderRadius: 10,
-                          background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--muted)',
-                        }}>
-                          {s.sistema} ({s.count})
-                        </span>
-                      ))}
-                      {row.sistemas.length > 3 && (
-                        <span style={{ fontSize: 11, color: 'var(--muted)' }}>+{row.sistemas.length - 3}</span>
-                      )}
-                    </div>
-                  </td>
-                  <td style={{ padding: '10px 16px', color: 'var(--muted)', fontSize: 12 }}>{fmtRelativeDay(row.ultimo_acesso)}</td>
-                </tr>
-              ))
+              rows.map((row) => {
+                const aberto = expandidos.has(row.sistema);
+                return (
+                  <React.Fragment key={row.sistema}>
+                    <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                      <td style={{ padding: '10px 16px', fontFamily: 'monospace', fontSize: 13 }}>{row.sistema}</td>
+                      <td style={{ padding: '10px 16px' }}>{row.total_acessos}</td>
+                      <td style={{ padding: '10px 16px', textAlign: 'right' }}>
+                        <button
+                          onClick={() => toggleExpandido(row.sistema)}
+                          style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 16 }}
+                        >
+                          {aberto ? '▾' : '▸'}
+                        </button>
+                      </td>
+                    </tr>
+                    {aberto && (
+                      <tr>
+                        <td colSpan={3} style={{ padding: '0 16px 16px', background: 'var(--surface)' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 8 }}>
+                            <thead>
+                              <tr>
+                                {['IP', 'Acessos', 'Último acesso'].map(h => (
+                                  <th key={h} style={{ padding: '6px 10px', textAlign: 'left', fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase' }}>{h}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {row.ips.map(ipRow => (
+                                <tr key={ipRow.ip} style={{ borderTop: '1px solid var(--border)' }}>
+                                  <td style={{ padding: '6px 10px' }}>
+                                    <button
+                                      onClick={() => setIpSelecionado(ipRow.ip)}
+                                      style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontFamily: 'monospace', fontSize: 13, padding: 0 }}
+                                    >
+                                      {ipRow.ip}
+                                    </button>
+                                  </td>
+                                  <td style={{ padding: '6px 10px' }}>{ipRow.count}</td>
+                                  <td style={{ padding: '6px 10px', color: 'var(--muted)', fontSize: 12 }}>{fmtRelativeDay(ipRow.ultimo_acesso)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })
             )}
           </tbody>
         </table>
       </div>
+
+      <AccessProjectCharts />
 
       {ipSelecionado && (
         <AccessIpModal ip={ipSelecionado} days={days} onClose={() => setIpSelecionado(null)} />
