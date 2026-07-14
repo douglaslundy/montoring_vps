@@ -70,6 +70,18 @@ def _upsert_daily(session: Session, day: str, ip: str, sistema: str) -> None:
         session.add(db_module.AccessLogDaily(day=day, ip=ip, sistema=sistema, count=1))
 
 
+def _upsert_hourly(session: Session, hour: str, sistema: str) -> None:
+    row = (
+        session.query(db_module.AccessLogHourly)
+        .filter_by(hour=hour, sistema=sistema)
+        .first()
+    )
+    if row:
+        row.count += 1
+    else:
+        session.add(db_module.AccessLogHourly(hour=hour, sistema=sistema, count=1))
+
+
 def _process_line(session: Session, line: str) -> None:
     line = line.strip()
     if not line:
@@ -102,6 +114,7 @@ def _process_line(session: Session, line: str) -> None:
         user_agent=entry.get("request_User-Agent"),
     ))
     _upsert_daily(session, accessed_at.strftime("%Y-%m-%d"), ip, sistema)
+    _upsert_hourly(session, accessed_at.strftime("%Y-%m-%d %H"), sistema)
 
 
 async def tail_access_log() -> None:

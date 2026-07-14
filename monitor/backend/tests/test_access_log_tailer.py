@@ -169,3 +169,23 @@ async def test_request_path_nulo_nao_interrompe_processamento(test_db, tmp_path,
     from sqlalchemy.orm import Session
     with Session(test_db.engine) as session:
         assert session.query(test_db.AccessLog).count() == 1
+
+
+@pytest.mark.asyncio
+async def test_processa_linha_grava_access_log_hourly(test_db, tmp_path, monkeypatch):
+    when = datetime.utcnow()
+    log_file = tmp_path / "access.log"
+    log_file.write_text(_traefik_line(when=when) + "\n", encoding="utf-8")
+    monkeypatch.setenv("TRAEFIK_ACCESS_LOG_PATH", str(log_file))
+
+    import collector.access_log_tailer as tailer
+    await tailer.tail_access_log()
+
+    from sqlalchemy.orm import Session
+    with Session(test_db.engine) as session:
+        hourly = session.query(test_db.AccessLogHourly).first()
+
+    assert hourly is not None
+    assert hourly.sistema == "app2.dlsistemas.com.br"
+    assert hourly.hour == when.strftime("%Y-%m-%d %H")
+    assert hourly.count == 1
