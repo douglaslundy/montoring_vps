@@ -81,3 +81,40 @@ def test_sem_autenticacao_401(test_db, monkeypatch):
 
     response = client.get("/api/metrics/history")
     assert response.status_code == 401
+
+
+def test_container_history_hour_agrega_media_por_bucket(auth_client):
+    client, db = auth_client
+    now = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
+    with Session(db.engine) as session:
+        session.add(db.ContainerMetrics(
+            collected_at=now, container_id="abc", container_name="circuitodascorridas-app",
+            cpu_percent=10.0, mem_percent=40.0, net_rx_mb=1.0, net_tx_mb=0.5,
+        ))
+        session.add(db.ContainerMetrics(
+            collected_at=now + timedelta(minutes=10), container_id="abc", container_name="circuitodascorridas-app",
+            cpu_percent=20.0, mem_percent=50.0, net_rx_mb=2.0, net_tx_mb=1.5,
+        ))
+        session.commit()
+
+    r = client.get("/api/metrics/container-history?container_name=circuitodascorridas-app&granularity=hour")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["granularity"] == "hour"
+    last_bucket = data["data"][-1]
+    assert last_bucket["cpu_percent"] == 15.0
+    assert last_bucket["mem_percent"] == 45.0
+
+
+def test_container_history_bucket_sem_amostra_retorna_null(auth_client):
+    client, _ = auth_client
+    r = client.get("/api/metrics/container-history?container_name=inexistente&granularity=hour")
+    data = r.json()
+    assert all(p["cpu_percent"] is None for p in data["data"])
+
+
+def test_container_history_sem_autenticacao_401():
+    from fastapi.testclient import TestClient
+    import main
+    client = TestClient(main.app)
+    assert client.get("/api/metrics/container-history?container_name=x").status_code == 401
