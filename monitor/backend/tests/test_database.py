@@ -180,3 +180,21 @@ def test_insert_ip_geo_cache(test_db):
         session.commit()
         fetched = session.get(test_db.IpGeoCache, "203.0.113.10")
     assert fetched.country == "Brazil"
+
+
+def test_tabela_access_log_hourly_criada(test_db):
+    with test_db.engine.connect() as conn:
+        result = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))
+        tables = {row[0] for row in result}
+    assert "access_log_hourly" in tables
+
+
+def test_insert_access_log_hourly(test_db):
+    with Session(test_db.engine) as session:
+        session.add(test_db.AccessLogHourly(
+            hour="2026-07-12 14", sistema="app2.dlsistemas.com.br", count=5,
+        ))
+        session.commit()
+        fetched = session.query(test_db.AccessLogHourly).first()
+    assert fetched.count == 5
+    assert fetched.hour == "2026-07-12 14"

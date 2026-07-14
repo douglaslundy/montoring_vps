@@ -142,6 +142,18 @@ Index("ix_access_log_daily_day", AccessLogDaily.day)
 Index("ix_access_log_daily_ip", AccessLogDaily.ip)
 
 
+class AccessLogHourly(Base):
+    __tablename__ = "access_log_hourly"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    hour = Column(String, nullable=False)      # "YYYY-MM-DD HH", UTC
+    sistema = Column(String, nullable=False)
+    count = Column(Integer, nullable=False, default=0)
+
+
+Index("ix_access_log_hourly_hour", AccessLogHourly.hour)
+Index("ix_access_log_hourly_sistema", AccessLogHourly.sistema)
+
+
 class IpGeoCache(Base):
     __tablename__ = "ip_geo_cache"
     ip = Column(String, primary_key=True)
