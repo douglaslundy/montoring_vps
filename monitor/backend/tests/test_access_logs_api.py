@@ -124,3 +124,42 @@ def test_endpoints_sem_autenticacao_401():
     assert client.get("/api/access-logs/summary").status_code == 401
     assert client.get("/api/access-logs/sistemas").status_code == 401
     assert client.get("/api/access-logs/ip/203.0.113.10").status_code == 401
+
+
+def test_summary_por_sistema_agrega_por_sistema_e_ip(auth_client):
+    client, db = auth_client
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    _seed_daily(db, today, "203.0.113.10", "circuitodascorridas.dlsistemas.com.br", 5)
+    _seed_daily(db, today, "198.51.100.20", "circuitodascorridas.dlsistemas.com.br", 3)
+    _seed_daily(db, today, "203.0.113.10", "monitor.dlsistemas.com.br", 2)
+
+    r = client.get("/api/access-logs/summary-por-sistema?days=7")
+    assert r.status_code == 200
+    data = r.json()
+    assert len(data) == 2
+    top = data[0]
+    assert top["sistema"] == "circuitodascorridas.dlsistemas.com.br"
+    assert top["total_acessos"] == 8
+    assert top["ips"][0]["ip"] == "203.0.113.10"
+    assert top["ips"][0]["count"] == 5
+
+
+def test_summary_por_sistema_filtra_por_ip_prefixo(auth_client):
+    client, db = auth_client
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    _seed_daily(db, today, "203.0.113.10", "circuitodascorridas.dlsistemas.com.br", 5)
+    _seed_daily(db, today, "198.51.100.20", "circuitodascorridas.dlsistemas.com.br", 3)
+
+    r = client.get("/api/access-logs/summary-por-sistema?days=7&ip=203.0.113")
+    data = r.json()
+    assert len(data) == 1
+    assert data[0]["total_acessos"] == 5
+    assert len(data[0]["ips"]) == 1
+    assert data[0]["ips"][0]["ip"] == "203.0.113.10"
+
+
+def test_summary_por_sistema_sem_autenticacao_401():
+    from fastapi.testclient import TestClient
+    import main
+    client = TestClient(main.app)
+    assert client.get("/api/access-logs/summary-por-sistema").status_code == 401

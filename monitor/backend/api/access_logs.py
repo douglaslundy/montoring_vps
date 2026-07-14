@@ -60,6 +60,39 @@ def summary(
     return result
 
 
+@router.get("/summary-por-sistema")
+def summary_por_sistema(
+    ip: Optional[str] = None,
+    days: int = Query(30),
+    session: Session = Depends(get_session),
+):
+    cutoff = _cutoff_day(days)
+    q = session.query(AccessLogDaily).filter(AccessLogDaily.day >= cutoff)
+    if ip:
+        q = q.filter(AccessLogDaily.ip.like(f"{ip}%"))
+    rows = q.all()
+
+    by_sistema: dict[str, dict] = {}
+    for r in rows:
+        entry = by_sistema.setdefault(r.sistema, {"sistema": r.sistema, "total_acessos": 0, "ips": {}})
+        entry["total_acessos"] += r.count
+        ip_entry = entry["ips"].setdefault(r.ip, {"ip": r.ip, "count": 0, "ultimo_acesso": r.day})
+        ip_entry["count"] += r.count
+        if r.day > ip_entry["ultimo_acesso"]:
+            ip_entry["ultimo_acesso"] = r.day
+
+    result = [
+        {
+            "sistema": v["sistema"],
+            "total_acessos": v["total_acessos"],
+            "ips": sorted(v["ips"].values(), key=lambda x: -x["count"]),
+        }
+        for v in by_sistema.values()
+    ]
+    result.sort(key=lambda x: -x["total_acessos"])
+    return result
+
+
 @router.get("/sistemas")
 def sistemas(session: Session = Depends(get_session)):
     rows = session.query(AccessLogDaily.sistema).distinct().order_by(AccessLogDaily.sistema).all()
