@@ -6,6 +6,7 @@ import AlertBadge from '../../components/AlertBadge'
 import VpsBadge from '../../components/VpsBadge'
 import Toast from '../../components/Toast'
 import { AlertNotificationsCompact, AlertNotificationsDetailed, type AlertNotificacao } from '../../components/AlertNotifications'
+import AlertRuleModal from '../../components/AlertRuleModal'
 
 interface AlertLog {
   id: number
@@ -352,69 +353,17 @@ export default function AlertasPage() {
 
           {/* Formulário */}
           {showForm && (
-            <div style={{ ...card, marginBottom: 20, border: '1px solid var(--accent)' }}>
-              <h3 style={{ color: 'var(--text)', marginBottom: 16 }}>{editId ? 'Editar Regra' : 'Nova Regra'}</h3>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div>
-                  <label style={{ color: 'var(--muted)', fontSize: 12 }}>Nome</label>
-                  <input style={input} value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} />
-                </div>
-                <div>
-                  <label style={{ color: 'var(--muted)', fontSize: 12 }}>Métrica</label>
-                  <select style={input} value={form.metrica} onChange={e => setForm(f => ({ ...f, metrica: e.target.value }))}>
-                    {METRICAS.map(m => <option key={m} value={m}>{METRICA_LABELS[m]}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label style={{ color: 'var(--muted)', fontSize: 12 }}>Operador</label>
-                  <select style={input} value={form.operador} onChange={e => setForm(f => ({ ...f, operador: e.target.value }))}>
-                    {OPERADORES.map(o => <option key={o} value={o}>{o}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label style={{ color: 'var(--muted)', fontSize: 12 }}>Threshold</label>
-                  <input type="number" style={input} value={form.threshold} onChange={e => setForm(f => ({ ...f, threshold: Number(e.target.value) }))} />
-                </div>
-                <div>
-                  <label style={{ color: 'var(--muted)', fontSize: 12 }}>Duração mínima (min)</label>
-                  <input type="number" style={input} value={form.duracao_minutos} onChange={e => setForm(f => ({ ...f, duracao_minutos: Number(e.target.value) }))} />
-                </div>
-                <div>
-                  <label style={{ color: 'var(--muted)', fontSize: 12 }}>Severidade</label>
-                  <select style={input} value={form.severidade} onChange={e => setForm(f => ({ ...f, severidade: e.target.value }))}>
-                    {SEVERIDADES.map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label style={{ color: 'var(--muted)', fontSize: 12 }}>Cooldown (min)</label>
-                  <input type="number" style={input} value={form.cooldown_minutos} onChange={e => setForm(f => ({ ...f, cooldown_minutos: Number(e.target.value) }))} />
-                </div>
-                <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-                  <label style={{ color: 'var(--muted)', fontSize: 12, display: 'flex', gap: 6, alignItems: 'center' }}>
-                    <input type="checkbox" checked={!!form.canal_email} onChange={e => setForm(f => ({ ...f, canal_email: e.target.checked ? 1 : 0 }))} />
-                    E-mail
-                  </label>
-                  <label style={{ color: 'var(--muted)', fontSize: 12, display: 'flex', gap: 6, alignItems: 'center' }}>
-                    <input type="checkbox" checked={!!form.canal_whatsapp} onChange={e => setForm(f => ({ ...f, canal_whatsapp: e.target.checked ? 1 : 0 }))} />
-                    WhatsApp
-                  </label>
-                </div>
-              </div>
-              <div style={{ marginTop: 16, display: 'flex', gap: 10 }}>
-                <button
-                  onClick={saveRule}
-                  style={{ padding: '8px 20px', background: 'var(--accent)', color: '#000', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 700 }}
-                >
-                  Salvar
-                </button>
-                <button
-                  onClick={() => setShowForm(false)}
-                  style={{ padding: '8px 16px', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer' }}
-                >
-                  Cancelar
-                </button>
-              </div>
-            </div>
+            <AlertRuleModal
+              form={form}
+              editing={editId !== null}
+              metricas={METRICAS}
+              operadores={OPERADORES}
+              severidades={SEVERIDADES}
+              metricaLabels={METRICA_LABELS}
+              onChange={setForm}
+              onSave={saveRule}
+              onClose={() => setShowForm(false)}
+            />
           )}
 
           {/* Lista de regras */}
