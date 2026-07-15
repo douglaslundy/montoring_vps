@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from api.auth import verify_token_header
-from models.database import AlertLog, AlertRule, get_session
+from models.database import AlertLog, AlertNotification, AlertRule, get_session
 
 router = APIRouter(prefix="/api/alerts", dependencies=[Depends(verify_token_header)])
 
@@ -89,7 +89,7 @@ def active_alerts(session: Session = Depends(get_session)):
         .order_by(AlertLog.triggered_at.desc())
         .all()
     )
-    return [_log_dict(a) for a in logs]
+    return [_log_dict(session, a) for a in logs]
 
 
 @router.get("/history")
@@ -117,10 +117,16 @@ def alert_history(
     if metrica:
         q = q.filter(AlertLog.metrica == metrica)
     logs = q.limit(min(limit, 500)).all()
-    return [_log_dict(a) for a in logs]
+    return [_log_dict(session, a) for a in logs]
 
 
-def _log_dict(a: AlertLog) -> dict:
+def _log_dict(session: Session, a: AlertLog) -> dict:
+    notifs = (
+        session.query(AlertNotification)
+        .filter(AlertNotification.alert_log_id == a.id)
+        .order_by(AlertNotification.tentativa_em.desc())
+        .all()
+    )
     return {
         "id": a.id,
         "rule_id": a.rule_id,
@@ -133,4 +139,11 @@ def _log_dict(a: AlertLog) -> dict:
         "mensagem": a.mensagem,
         "vps_name": a.vps_name,
         "contexto": json.loads(a.contexto) if a.contexto else None,
+        "notificacoes": [
+            {
+                "canal": n.canal, "tipo": n.tipo, "status": n.status,
+                "erro": n.erro, "tentativa_em": n.tentativa_em.isoformat() + "Z",
+            }
+            for n in notifs
+        ],
     }

@@ -141,3 +141,47 @@ def test_history_alerta_sem_contexto_retorna_none(client):
     r = client.get("/api/alerts/history", headers=headers)
     assert r.status_code == 200
     assert r.json()[0]["contexto"] is None
+
+
+def test_active_alerts_inclui_notificacoes(client):
+    import models.database as db_module
+    from datetime import datetime
+    from api.auth import create_token
+    with db_module.Session(db_module.engine) as s:
+        log = db_module.AlertLog(
+            rule_id=None, triggered_at=datetime.utcnow(), severidade="critico",
+            metrica="disk_percent", mensagem="teste",
+        )
+        s.add(log)
+        s.commit()
+        s.refresh(log)
+        s.add(db_module.AlertNotification(
+            alert_log_id=log.id, canal="whatsapp", tipo="disparo",
+            status="enviado", tentativa_em=datetime.utcnow(),
+        ))
+        s.commit()
+
+    headers = {"Authorization": f"Bearer {create_token('admin')}"}
+    r = client.get("/api/alerts/active", headers=headers)
+    assert r.status_code == 200
+    notifs = r.json()[0]["notificacoes"]
+    assert len(notifs) == 1
+    assert notifs[0]["canal"] == "whatsapp"
+    assert notifs[0]["status"] == "enviado"
+
+
+def test_history_alerta_sem_notificacoes_retorna_lista_vazia(client):
+    import models.database as db_module
+    from datetime import datetime
+    from api.auth import create_token
+    with db_module.Session(db_module.engine) as s:
+        s.add(db_module.AlertLog(
+            rule_id=None, triggered_at=datetime.utcnow(), severidade="aviso",
+            metrica="temperature_c", mensagem="sem notificacao",
+        ))
+        s.commit()
+
+    headers = {"Authorization": f"Bearer {create_token('admin')}"}
+    r = client.get("/api/alerts/history", headers=headers)
+    assert r.status_code == 200
+    assert r.json()[0]["notificacoes"] == []
