@@ -5,6 +5,7 @@ import api from '../../lib/api'
 import AlertBadge from '../../components/AlertBadge'
 import VpsBadge from '../../components/VpsBadge'
 import Toast from '../../components/Toast'
+import { AlertNotificationsCompact, AlertNotificationsDetailed, type AlertNotificacao } from '../../components/AlertNotifications'
 
 interface AlertLog {
   id: number
@@ -18,6 +19,7 @@ interface AlertLog {
   mensagem: string | null
   vps_name: string | null
   contexto: Record<string, any> | null
+  notificacoes: AlertNotificacao[]
 }
 
 interface AlertRule {
@@ -265,6 +267,7 @@ export default function AlertasPage() {
               <div style={{ color: 'var(--muted)', fontSize: 13 }}>
                 Iniciado: {formatDt(a.triggered_at)} · Duração: {elapsed(a.triggered_at)}
               </div>
+              <AlertNotificationsCompact notificacoes={a.notificacoes} />
             </div>
           ))}
         </div>
@@ -322,6 +325,9 @@ export default function AlertasPage() {
                     <tr>
                       <td colSpan={7} style={{ background: 'var(--surface)', padding: 16, borderBottom: '1px solid var(--border)', fontSize: 12 }}>
                         {renderContexto(a.contexto)}
+                        <div style={{ marginTop: 12 }}>
+                          <AlertNotificationsDetailed notificacoes={a.notificacoes} />
+                        </div>
                       </td>
                     </tr>
                   )}
