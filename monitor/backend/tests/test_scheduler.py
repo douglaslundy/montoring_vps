@@ -134,3 +134,37 @@ async def test_cleanup_remove_access_log_hourly_antigo(test_db, monkeypatch):
         rows = session.query(test_db.AccessLogHourly).all()
     assert len(rows) == 1
     assert rows[0].hour == recent_hour
+
+
+@pytest.mark.asyncio
+async def test_cleanup_remove_alert_notification_antigo(test_db, monkeypatch):
+    monkeypatch.setenv("JWT_SECRET", "test-secret-key")
+    from datetime import datetime, timedelta
+    from sqlalchemy.orm import Session
+
+    with Session(test_db.engine) as session:
+        log = test_db.AlertLog(
+            rule_id=None, triggered_at=datetime.utcnow(), severidade="aviso",
+            metrica="disk_percent", mensagem="teste",
+        )
+        session.add(log)
+        session.commit()
+        session.refresh(log)
+        session.add(test_db.AlertNotification(
+            alert_log_id=log.id, canal="whatsapp", tipo="disparo",
+            status="enviado", tentativa_em=datetime.utcnow() - timedelta(days=40),
+        ))
+        session.add(test_db.AlertNotification(
+            alert_log_id=log.id, canal="whatsapp", tipo="disparo",
+            status="enviado", tentativa_em=datetime.utcnow(),
+        ))
+        session.commit()
+
+    import importlib
+    import collector.scheduler as sched
+    importlib.reload(sched)
+    await sched._cleanup()
+
+    with Session(test_db.engine) as session:
+        rows = session.query(test_db.AlertNotification).all()
+    assert len(rows) == 1
