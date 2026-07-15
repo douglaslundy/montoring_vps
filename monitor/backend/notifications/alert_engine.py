@@ -256,7 +256,7 @@ async def _evaluate_container_stopped(session: Session, rule: AlertRule, contain
                     logger.exception("Erro ao inspecionar container parado %s", name)
                     contexto = None
 
-            session.add(AlertLog(
+            open_log = AlertLog(
                 rule_id=rule.id,
                 triggered_at=now,
                 severidade=rule.severidade,
@@ -266,7 +266,19 @@ async def _evaluate_container_stopped(session: Session, rule: AlertRule, contain
                 mensagem=container_mensagem,
                 vps_name=vps_name,
                 contexto=json.dumps(contexto) if contexto else None,
-            ))
+            )
+            session.add(open_log)
+            session.flush()  # garante open_log.id para o FK de AlertNotification
+
+        duration_ok = rule.duracao_minutos == 0 or (
+            (now - open_log.triggered_at).total_seconds() / 60 >= rule.duracao_minutos
+        )
+        cooldown_ok = (
+            open_log.last_notified_at is None or
+            (now - open_log.last_notified_at).total_seconds() / 60 >= rule.cooldown_minutos
+        )
+        if duration_ok and cooldown_ok:
+            _notify_alert(session, open_log, rule, now)
 
     # Resolve containers que voltaram a running OU que foram removidos
     # (recriados com outro nome/ID em vez de reiniciados — nesse caso o nome
@@ -285,6 +297,7 @@ async def _evaluate_container_stopped(session: Session, rule: AlertRule, contain
         container_name = m.group(1)
         if container_name in running_names or container_name not in known_names:
             log.resolved_at = now
+            _notify_resolution(session, log, rule)
 
 
 async def evaluate(metrics: dict, containers: list, docker_client=None) -> list:

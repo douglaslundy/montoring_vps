@@ -378,3 +378,36 @@ def test_resolucao_grava_notificacao_enviada(fresh_db):
     assert len(resolucoes) == 1
     assert resolucoes[0].status == "enviado"
     mock_res.assert_called_once()
+
+
+def test_container_parado_notifica_ao_criar_alerta(fresh_db):
+    from notifications.alert_engine import evaluate
+    enable_channels(fresh_db)
+    add_rule(fresh_db, metrica="container_stopped", operador="==", threshold=1,
+             canal_whatsapp=1, canal_email=0)
+    with patch("notifications.whatsapp_service.send_alert") as mock_send:
+        asyncio.run(evaluate(make_metrics(), [{"name": "nginx", "status": "exited"}]))
+    with Session(fresh_db) as s:
+        log = s.query(AlertLog).filter(AlertLog.metrica == "container_stopped").first()
+    notifs = get_notifications(fresh_db, log.id)
+    assert len(notifs) == 1
+    assert notifs[0].status == "enviado"
+    assert notifs[0].tipo == "disparo"
+    mock_send.assert_called_once()
+
+
+def test_container_parado_notifica_resolucao(fresh_db):
+    from notifications.alert_engine import evaluate
+    enable_channels(fresh_db)
+    add_rule(fresh_db, metrica="container_stopped", operador="==", threshold=1,
+             canal_whatsapp=1, canal_email=0)
+    with patch("notifications.whatsapp_service.send_alert"):
+        asyncio.run(evaluate(make_metrics(), [{"name": "nginx", "status": "exited"}]))
+    with Session(fresh_db) as s:
+        log = s.query(AlertLog).filter(AlertLog.metrica == "container_stopped").first()
+    with patch("notifications.whatsapp_service.send_resolution") as mock_res:
+        asyncio.run(evaluate(make_metrics(), [{"name": "nginx", "status": "running"}]))
+    resolucoes = [n for n in get_notifications(fresh_db, log.id) if n.tipo == "resolucao"]
+    assert len(resolucoes) == 1
+    assert resolucoes[0].status == "enviado"
+    mock_res.assert_called_once()
