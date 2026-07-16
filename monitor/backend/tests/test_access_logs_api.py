@@ -279,3 +279,30 @@ def test_timeseries_sem_autenticacao_401():
     import main
     client = TestClient(main.app)
     assert client.get("/api/access-logs/timeseries?sistema=x.com").status_code == 401
+
+
+def test_timeseries_hour_sem_sistema_agrega_todos(auth_client):
+    client, db = auth_client
+    now = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
+    _seed_hourly(db, now.strftime("%Y-%m-%d %H"), "app2.dlsistemas.com.br", 7)
+    _seed_hourly(db, now.strftime("%Y-%m-%d %H"), "monitor.dlsistemas.com.br", 3)
+
+    r = client.get("/api/access-logs/timeseries?granularity=hour")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["data"][-1]["value"] == 10
+
+
+def test_timeseries_day_sem_sistema_agrega_todos(auth_client):
+    client, db = auth_client
+    now = datetime.utcnow()
+    ultimo_dia_mes_anterior = now.replace(day=1) - timedelta(days=1)
+    mes_anterior = ultimo_dia_mes_anterior.strftime("%Y-%m")
+
+    _seed_daily(db, f"{mes_anterior}-01", "203.0.113.10", "app2.dlsistemas.com.br", 10)
+    _seed_daily(db, f"{mes_anterior}-01", "203.0.113.11", "monitor.dlsistemas.com.br", 5)
+
+    r = client.get(f"/api/access-logs/timeseries?granularity=day&month={mes_anterior}")
+    data = r.json()
+    primeiro = next(d for d in data["data"] if d["ts"] == f"{mes_anterior}-01")
+    assert primeiro["value"] == 15

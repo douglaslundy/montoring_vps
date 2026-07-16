@@ -5,6 +5,7 @@ import AccessIpModal from '../../components/AccessIpModal';
 import AccessProjectCharts from '../../components/AccessProjectCharts';
 
 type Range = '24h' | '7d' | '30d';
+type Tab = 'acessos' | 'projeto';
 
 interface IpCount { ip: string; count: number; ultimo_acesso: string; }
 interface SistemaSummaryRow { sistema: string; total_acessos: number; ips: IpCount[]; }
@@ -25,6 +26,7 @@ function fmtRelativeDay(day: string): string {
 }
 
 export default function AcessosPage() {
+  const [tab, setTab] = useState<Tab>('acessos');
   const [range, setRange] = useState<Range>('7d');
   const [ipFiltro, setIpFiltro] = useState('');
   const [rows, setRows] = useState<SistemaSummaryRow[]>([]);
@@ -70,6 +72,13 @@ export default function AcessosPage() {
     <div>
       <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 24 }}>Acessos</h1>
 
+      <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
+        <button onClick={() => setTab('acessos')} style={tabBtn(tab === 'acessos')}>Acessos</button>
+        <button onClick={() => setTab('projeto')} style={tabBtn(tab === 'projeto')}>Acessos por Projeto</button>
+      </div>
+
+      {tab === 'acessos' && (
+      <>
       <div style={{ display: 'flex', gap: 20, marginBottom: 20, flexWrap: 'wrap' }}>
         <div>
           <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6, textTransform: 'uppercase' }}>Período</div>
@@ -121,7 +130,12 @@ export default function AcessosPage() {
                 return (
                   <React.Fragment key={row.sistema}>
                     <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td style={{ padding: '10px 16px', fontFamily: 'monospace', fontSize: 13 }}>{row.sistema}</td>
+                      <td
+                        onClick={() => toggleExpandido(row.sistema)}
+                        style={{ padding: '10px 16px', fontFamily: 'monospace', fontSize: 13, cursor: 'pointer' }}
+                      >
+                        {row.sistema}
+                      </td>
                       <td style={{ padding: '10px 16px' }}>{row.total_acessos}</td>
                       <td style={{ padding: '10px 16px', textAlign: 'right' }}>
                         <button
@@ -170,8 +184,10 @@ export default function AcessosPage() {
           </tbody>
         </table>
       </div>
+      </>
+      )}
 
-      <AccessProjectCharts />
+      {tab === 'projeto' && <AccessProjectCharts />}
 
       {ipSelecionado && (
         <AccessIpModal ip={ipSelecionado} days={days} onClose={() => setIpSelecionado(null)} />

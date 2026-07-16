@@ -177,7 +177,7 @@ async def ip_detail(
 
 @router.get("/timeseries")
 def timeseries(
-    sistema: str,
+    sistema: Optional[str] = None,
     granularity: str = Query("hour"),
     day: Optional[str] = None,
     month: Optional[str] = None,
@@ -185,11 +185,10 @@ def timeseries(
 ):
     if granularity == "day":
         buckets = daily_buckets(month)
-        rows = (
-            session.query(AccessLogDaily)
-            .filter(AccessLogDaily.sistema == sistema, AccessLogDaily.day.in_(buckets))
-            .all()
-        )
+        q = session.query(AccessLogDaily).filter(AccessLogDaily.day.in_(buckets))
+        if sistema:
+            q = q.filter(AccessLogDaily.sistema == sistema)
+        rows = q.all()
         totals: dict[str, int] = {}
         for r in rows:
             totals[r.day] = totals.get(r.day, 0) + r.count
@@ -200,12 +199,13 @@ def timeseries(
 
     hours = hourly_buckets(day)
     keys = [h.strftime("%Y-%m-%d %H") for h in hours]
-    rows = (
-        session.query(AccessLogHourly)
-        .filter(AccessLogHourly.sistema == sistema, AccessLogHourly.hour.in_(keys))
-        .all()
-    )
-    totals = {r.hour: r.count for r in rows}
+    q = session.query(AccessLogHourly).filter(AccessLogHourly.hour.in_(keys))
+    if sistema:
+        q = q.filter(AccessLogHourly.sistema == sistema)
+    rows = q.all()
+    totals = {}
+    for r in rows:
+        totals[r.hour] = totals.get(r.hour, 0) + r.count
     return {
         "granularity": "hour",
         "data": [

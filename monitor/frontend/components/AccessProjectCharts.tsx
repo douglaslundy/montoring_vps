@@ -41,9 +41,7 @@ export default function AccessProjectCharts() {
 
   useEffect(() => {
     api.get('/access-logs/sistemas').then(r => {
-      const lista: string[] = r.data ?? [];
-      setSistemas(lista);
-      setProjeto(prev => prev || lista[0] || '');
+      setSistemas(r.data ?? []);
     }).catch(() => setSistemas([]));
   }, []);
 
@@ -53,10 +51,11 @@ export default function AccessProjectCharts() {
   }, [periodo, mes, diaEspecifico]);
 
   const loadAcessos = useCallback(async () => {
-    if (!projeto) { setAcessos([]); return; }
     setLoading(true);
     try {
-      const r = await api.get('/access-logs/timeseries', { params: { sistema: projeto, ...paramsPeriodo() } });
+      const params: Record<string, string> = { ...paramsPeriodo() };
+      if (projeto) params.sistema = projeto;
+      const r = await api.get('/access-logs/timeseries', { params });
       setAcessos(r.data.data ?? []);
     } catch { setAcessos([]); }
     finally { setLoading(false); }
@@ -148,6 +147,7 @@ export default function AccessProjectCharts() {
             onChange={(e) => setProjeto(e.target.value)}
             style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: 12 }}
           >
+            <option value="">Todos</option>
             {sistemas.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
@@ -162,7 +162,7 @@ export default function AccessProjectCharts() {
           <LineChart data={acessos} unit="" label="Acessos" height={240} />
         ) : (
           <div style={{ height: 240, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)' }}>
-            {projeto ? 'Sem dados para o período selecionado' : 'Nenhum sistema disponível'}
+            {sistemas.length === 0 ? 'Nenhum sistema disponível' : 'Sem dados para o período selecionado'}
           </div>
         )}
       </div>
@@ -188,7 +188,9 @@ export default function AccessProjectCharts() {
           </>
         ) : (
           <div style={{ height: 240, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', textAlign: 'center' }}>
-            Recursos não disponíveis para este projeto (nenhum container do Traefik encontrado para este domínio).
+            {projeto
+              ? 'Recursos não disponíveis para este projeto (nenhum container do Traefik encontrado para este domínio).'
+              : 'Selecione um projeto específico para ver recursos utilizados.'}
           </div>
         )}
       </div>
