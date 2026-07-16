@@ -128,11 +128,16 @@ async def tail_access_log() -> None:
         return
     _warned_missing_file = False
 
-    current_inode = path_obj.stat().st_ino
+    current_stat = path_obj.stat()
+    current_inode = current_stat.st_ino
 
     with Session(db_module.engine) as session:
         offset, saved_inode = _get_offset(session)
         if saved_inode is not None and saved_inode != current_inode:
+            offset = 0
+        elif offset > current_stat.st_size:
+            # Rotacao via logrotate `copytruncate`: mesmo inode, mas o arquivo
+            # foi truncado para um tamanho menor que o offset salvo.
             offset = 0
 
         with open(path_obj, "r", encoding="utf-8", errors="replace") as f:

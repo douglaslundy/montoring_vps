@@ -123,6 +123,30 @@ async def test_mudanca_de_inode_reseta_offset(test_db, tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_arquivo_truncado_mesmo_inode_reseta_offset(test_db, tmp_path, monkeypatch):
+    # Simula rotacao via logrotate `copytruncate`: o arquivo mantem o MESMO
+    # inode, mas e truncado para um tamanho menor que o offset salvo.
+    log_file = tmp_path / "access.log"
+    linhas_iniciais = "".join(_traefik_line(client_host="203.0.113.10") + "\n" for _ in range(5))
+    log_file.write_text(linhas_iniciais, encoding="utf-8")
+    monkeypatch.setenv("TRAEFIK_ACCESS_LOG_PATH", str(log_file))
+
+    import collector.access_log_tailer as tailer
+    await tailer.tail_access_log()
+
+    # Trunca o MESMO arquivo (mesmo inode) com conteudo bem menor que o offset salvo
+    with open(log_file, "w", encoding="utf-8") as f:
+        f.write(_traefik_line(client_host="198.51.100.20") + "\n")
+
+    await tailer.tail_access_log()
+
+    from sqlalchemy.orm import Session
+    with Session(test_db.engine) as session:
+        ips = {row.ip for row in session.query(test_db.AccessLog).all()}
+    assert ips == {"203.0.113.10", "198.51.100.20"}
+
+
+@pytest.mark.asyncio
 async def test_arquivo_ausente_nao_lanca_excecao(test_db, tmp_path, monkeypatch):
     monkeypatch.setenv("TRAEFIK_ACCESS_LOG_PATH", str(tmp_path / "nao-existe.log"))
 
