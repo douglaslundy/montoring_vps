@@ -284,3 +284,43 @@ async def test_list_containers_with_size():
 
     assert result == mock_data
     mock_http.get.assert_called_once_with("/containers/json", params={"all": True, "size": True})
+
+
+@pytest.mark.asyncio
+async def test_remove_container_chama_endpoint_correto():
+    from collector.docker_client import DockerClient
+    client = DockerClient()
+
+    mock_response = MagicMock()
+    mock_response.status_code = 204
+    mock_response.raise_for_status = MagicMock()
+    mock_http = AsyncMock()
+    mock_http.delete = AsyncMock(return_value=mock_response)
+    mock_http.__aenter__ = AsyncMock(return_value=mock_http)
+    mock_http.__aexit__ = AsyncMock(return_value=False)
+
+    with patch.object(client, "_client", return_value=mock_http):
+        await client.remove_container("abc123")
+
+    mock_http.delete.assert_called_once_with("/containers/abc123")
+
+
+@pytest.mark.asyncio
+async def test_remove_container_propaga_erro_409_quando_rodando():
+    import httpx
+    from collector.docker_client import DockerClient
+    client = DockerClient()
+
+    mock_response = MagicMock()
+    mock_response.status_code = 409
+    mock_response.raise_for_status = MagicMock(
+        side_effect=httpx.HTTPStatusError("conflict", request=MagicMock(), response=mock_response)
+    )
+    mock_http = AsyncMock()
+    mock_http.delete = AsyncMock(return_value=mock_response)
+    mock_http.__aenter__ = AsyncMock(return_value=mock_http)
+    mock_http.__aexit__ = AsyncMock(return_value=False)
+
+    with patch.object(client, "_client", return_value=mock_http):
+        with pytest.raises(httpx.HTTPStatusError):
+            await client.remove_container("abc123")

@@ -118,6 +118,11 @@ class DockerClient:
     async def restart_container(self, container_id: str, timeout: int = 10) -> None:
         await self._post_action(container_id, "restart", {"t": timeout})
 
+    async def remove_container(self, container_id: str) -> None:
+        async with self._client() as c:
+            r = await c.delete(f"/containers/{container_id}")
+            r.raise_for_status()
+
     async def list_containers_with_size(self) -> list[dict]:
         async with self._client() as c:
             r = await c.get("/containers/json", params={"all": True, "size": True})
