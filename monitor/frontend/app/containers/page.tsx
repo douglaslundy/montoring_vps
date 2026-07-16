@@ -7,12 +7,18 @@ import Toast from '../../components/Toast';
 import api from '../../lib/api';
 
 type Filter = 'all' | 'running' | 'stopped';
-type ContainerAction = 'start' | 'stop' | 'restart';
+type ContainerAction = 'start' | 'stop' | 'restart' | 'remove';
 interface Point { ts: string; value: number | null; }
-interface ConfirmState { id: string; name: string; action: ContainerAction; }
+interface ConfirmState {
+  id: string;
+  name: string;
+  action: ContainerAction;
+  statusText?: string;
+  diskUsageMb?: number | null;
+}
 
 const MONITOR_CONTAINERS = ['monitor-backend', 'monitor-frontend', 'monitor-nginx'];
-const ACTION_LABEL: Record<ContainerAction, string> = { start: 'iniciar', stop: 'parar', restart: 'reiniciar' };
+const ACTION_LABEL: Record<ContainerAction, string> = { start: 'iniciar', stop: 'parar', restart: 'reiniciar', remove: 'excluir' };
 
 function wsUrl() {
   if (typeof window === 'undefined') return '';
@@ -31,6 +37,7 @@ export default function ContainersPage() {
   const [logSearch, setLogSearch] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const [confirmAction, setConfirmAction] = useState<ConfirmState | null>(null);
+  const [confirmText, setConfirmText] = useState('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [actionToast, setActionToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
@@ -46,9 +53,20 @@ export default function ContainersPage() {
     }
   }
 
-  function requestAction(id: string, name: string, action: ContainerAction) {
+  async function requestAction(id: string, name: string, action: ContainerAction) {
     if (action === 'start') {
       runAction(id, action);
+      return;
+    }
+    if (action === 'remove') {
+      const container = allContainers.find((c) => c.id === id);
+      let diskUsageMb: number | null = null;
+      try {
+        const r = await api.get(`/containers/${id}/disk-usage`);
+        diskUsageMb = r.data.size_rw_mb;
+      } catch { /* segue sem dado de disco */ }
+      setConfirmText('');
+      setConfirmAction({ id, name, action, statusText: container?.status_text, diskUsageMb });
       return;
     }
     setConfirmAction({ id, name, action });
@@ -170,6 +188,7 @@ export default function ContainersPage() {
                     isExpanded={expanded === c.id}
                     onAction={requestAction}
                     actionLoading={actionLoading}
+                    removeProtected={MONITOR_CONTAINERS.includes(c.name)}
                   />
                   {expanded === c.id && (
                     <tr key={`${c.id}-detail`}>
@@ -296,7 +315,7 @@ export default function ContainersPage() {
             position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)',
             zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}
-          onClick={() => setConfirmAction(null)}
+          onClick={() => { setConfirmAction(null); setConfirmText(''); }}
         >
           <div
             style={{
@@ -306,23 +325,54 @@ export default function ContainersPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <h3 style={{ marginBottom: 12, color: 'var(--text)' }}>
-              {MONITOR_CONTAINERS.includes(confirmAction.name) ? 'Atenção: container do próprio monitor' : 'Confirmar ação'}
+              {confirmAction.action === 'remove'
+                ? 'Excluir container'
+                : MONITOR_CONTAINERS.includes(confirmAction.name) ? 'Atenção: container do próprio monitor' : 'Confirmar ação'}
             </h3>
-            <p style={{ color: 'var(--muted)', marginBottom: 20, fontSize: 14 }}>
-              {MONITOR_CONTAINERS.includes(confirmAction.name)
-                ? `Este é um container do próprio VPS Monitor. ${confirmAction.action === 'stop' ? 'Parar' : 'Reiniciar'} "${confirmAction.name}" pode derrubar o painel de monitoramento temporariamente. Deseja continuar?`
-                : `Tem certeza que deseja ${ACTION_LABEL[confirmAction.action]} o container "${confirmAction.name}"?`}
-            </p>
+            {confirmAction.action === 'remove' ? (
+              <>
+                <p style={{ color: 'var(--muted)', marginBottom: 8, fontSize: 14 }}>
+                  Excluir &quot;{confirmAction.name}&quot; remove o container permanentemente (sem remover volumes associados). Essa ação não pode ser desfeita.
+                </p>
+                <p style={{ color: 'var(--muted)', marginBottom: 16, fontSize: 13 }}>
+                  {confirmAction.statusText || 'Status indisponível'}
+                  {confirmAction.diskUsageMb != null && ` · ${confirmAction.diskUsageMb.toFixed(1)} MB em disco`}
+                </p>
+                <label style={{ color: 'var(--muted)', fontSize: 12, display: 'block', marginBottom: 6 }}>
+                  Digite &quot;{confirmAction.name}&quot; para confirmar:
+                </label>
+                <input
+                  value={confirmText}
+                  onChange={(e) => setConfirmText(e.target.value)}
+                  style={{
+                    width: '100%', boxSizing: 'border-box', marginBottom: 20,
+                    background: 'var(--surface)', border: '1px solid var(--border)',
+                    borderRadius: 6, padding: '6px 10px', color: 'var(--text)', fontSize: 14,
+                  }}
+                />
+              </>
+            ) : (
+              <p style={{ color: 'var(--muted)', marginBottom: 20, fontSize: 14 }}>
+                {MONITOR_CONTAINERS.includes(confirmAction.name)
+                  ? `Este é um container do próprio VPS Monitor. ${confirmAction.action === 'stop' ? 'Parar' : 'Reiniciar'} "${confirmAction.name}" pode derrubar o painel de monitoramento temporariamente. Deseja continuar?`
+                  : `Tem certeza que deseja ${ACTION_LABEL[confirmAction.action]} o container "${confirmAction.name}"?`}
+              </p>
+            )}
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button
-                onClick={() => setConfirmAction(null)}
+                onClick={() => { setConfirmAction(null); setConfirmText(''); }}
                 style={{ padding: '8px 16px', background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer' }}
               >
                 Cancelar
               </button>
               <button
-                onClick={() => { runAction(confirmAction.id, confirmAction.action); setConfirmAction(null); }}
-                style={{ padding: '8px 20px', background: 'var(--danger)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 700 }}
+                disabled={confirmAction.action === 'remove' && confirmText !== confirmAction.name}
+                onClick={() => { runAction(confirmAction.id, confirmAction.action); setConfirmAction(null); setConfirmText(''); }}
+                style={{
+                  padding: '8px 20px', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700,
+                  background: (confirmAction.action === 'remove' && confirmText !== confirmAction.name) ? 'var(--muted)' : 'var(--danger)',
+                  cursor: (confirmAction.action === 'remove' && confirmText !== confirmAction.name) ? 'not-allowed' : 'pointer',
+                }}
               >
                 Confirmar
               </button>

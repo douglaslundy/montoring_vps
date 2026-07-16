@@ -7,8 +7,9 @@ interface Props {
   onViewLogs?: (id: string, name: string) => void;
   onToggleExpand?: () => void;
   isExpanded?: boolean;
-  onAction?: (id: string, name: string, action: 'start' | 'stop' | 'restart') => void;
+  onAction?: (id: string, name: string, action: 'start' | 'stop' | 'restart' | 'remove') => void;
   actionLoading?: string | null;
+  removeProtected?: boolean;
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -29,7 +30,7 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-export default function ContainerRow({ container, onViewLogs, onToggleExpand, isExpanded, onAction, actionLoading }: Props) {
+export default function ContainerRow({ container, onViewLogs, onToggleExpand, isExpanded, onAction, actionLoading, removeProtected }: Props) {
   const actionBtn = {
     padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border)',
     background: 'transparent', color: 'var(--text)', cursor: 'pointer', fontSize: 13, lineHeight: 1,
@@ -108,6 +109,14 @@ export default function ContainerRow({ container, onViewLogs, onToggleExpand, is
                 style={container.status !== 'running' ? actionBtnDisabled : actionBtn}
               >
                 {actionLoading === `${container.id}:stop` ? '…' : '⏹'}
+              </button>
+              <button
+                title={removeProtected ? 'Container do próprio monitor — exclusão bloqueada' : 'Excluir'}
+                disabled={container.status === 'running' || removeProtected || actionLoading === `${container.id}:remove`}
+                onClick={() => onAction(container.id, container.name, 'remove')}
+                style={(container.status === 'running' || removeProtected) ? actionBtnDisabled : actionBtn}
+              >
+                {actionLoading === `${container.id}:remove` ? '…' : '🗑'}
               </button>
             </>
           )}
