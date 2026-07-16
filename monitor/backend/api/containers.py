@@ -5,9 +5,10 @@ from sqlalchemy.orm import Session
 import models.database as db_module
 from api.auth import get_token_data
 from collector.scheduler import docker_client, get_last_metrics
-from models.database import ContainerActionLog
+from models.database import ContainerActionLog, ContainerDiskUsage
 
 containers_router = APIRouter()
+MONITOR_OWN_CONTAINERS = {"monitor-backend", "monitor-frontend", "monitor-nginx"}
 
 
 @containers_router.get("/containers")
@@ -69,3 +70,30 @@ async def stop_container(container_id: str, token_data: dict = Depends(get_token
 @containers_router.post("/containers/{container_id}/restart")
 async def restart_container(container_id: str, token_data: dict = Depends(get_token_data)):
     return await _run_action(container_id, "restart", docker_client.restart_container, token_data)
+
+
+@containers_router.delete("/containers/{container_id}")
+async def remove_container(container_id: str, token_data: dict = Depends(get_token_data)):
+    container_name = _container_name(container_id)
+    if container_name in MONITOR_OWN_CONTAINERS:
+        raise HTTPException(status_code=403, detail="Não é possível excluir um container do próprio VPS Monitor.")
+    return await _run_action(container_id, "remove", docker_client.remove_container, token_data)
+
+
+@containers_router.get("/containers/{container_id}/disk-usage")
+def container_disk_usage(container_id: str):
+    container_name = _container_name(container_id)
+    with Session(db_module.engine) as session:
+        row = (
+            session.query(ContainerDiskUsage)
+            .filter(ContainerDiskUsage.container_name == container_name)
+            .order_by(ContainerDiskUsage.collected_at.desc())
+            .first()
+        )
+    if not row:
+        return {"size_rw_mb": None, "size_rootfs_mb": None, "collected_at": None}
+    return {
+        "size_rw_mb": row.size_rw_mb,
+        "size_rootfs_mb": row.size_rootfs_mb,
+        "collected_at": row.collected_at.isoformat(),
+    }
