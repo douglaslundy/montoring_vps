@@ -20,7 +20,7 @@ def test_wal_mode_ativo(test_db):
 def test_regras_padrao_inseridas(test_db):
     with Session(test_db.engine) as session:
         count = session.query(test_db.AlertRule).count()
-    assert count == 9
+    assert count == 10
 
 def test_insert_metrics_history(test_db):
     from datetime import datetime
@@ -227,3 +227,26 @@ def test_insert_alert_notification(test_db):
     assert fetched.canal == "whatsapp"
     assert fetched.status == "enviado"
     assert fetched.alert_log_id == log_id
+
+
+def test_init_db_backfill_regra_espaco_reaproveitavel_banco_existente(tmp_path, monkeypatch):
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "test.db"))
+    import importlib
+    import models.database as db_module
+    importlib.reload(db_module)
+    db_module.init_db()
+
+    from sqlalchemy.orm import Session
+    with Session(db_module.engine) as session:
+        rule = session.query(db_module.AlertRule).filter_by(nome="Espaço em Disco Reaproveitável").first()
+        assert rule is not None
+        session.delete(rule)
+        session.commit()
+
+    db_module.init_db()  # roda de novo, como se fosse um redeploy
+
+    with Session(db_module.engine) as session:
+        rules = session.query(db_module.AlertRule).filter_by(nome="Espaço em Disco Reaproveitável").all()
+    assert len(rules) == 1
+    assert rules[0].metrica == "docker_reclaimable_mb"
+    assert rules[0].threshold == 500

@@ -238,6 +238,13 @@ async def test_check_docker_cleanup_nao_dispara_sem_regra_ativa(test_db, monkeyp
     importlib.reload(sched)
     from sqlalchemy.orm import Session
 
+    # init_db() já semeia a regra padrão "Espaço em Disco Reaproveitável" ativa;
+    # desativa explicitamente pra testar o caso de nenhuma regra ativa dessa métrica.
+    with Session(test_db.engine) as session:
+        rule = session.query(test_db.AlertRule).filter_by(metrica="docker_reclaimable_mb").first()
+        rule.ativo = 0
+        session.commit()
+
     mock_images = [
         {"Id": "sha256:def", "RepoTags": ["old:latest"], "Size": 900 * 1024 * 1024, "Containers": 0},
     ]

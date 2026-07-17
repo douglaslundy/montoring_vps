@@ -198,6 +198,7 @@ _DEFAULT_RULES = [
     {"nome": "Temperatura Alta", "metrica": "temperature_c", "operador": ">", "threshold": 75, "duracao_minutos": 5, "severidade": "aviso", "cooldown_minutos": 30},
     {"nome": "Load Alto", "metrica": "load_1m", "operador": ">", "threshold": 6.0, "duracao_minutos": 5, "severidade": "aviso", "cooldown_minutos": 30},
     {"nome": "Container Parado", "metrica": "container_stopped", "operador": "==", "threshold": 1, "duracao_minutos": 0, "severidade": "critico", "cooldown_minutos": 0},
+    {"nome": "Espaço em Disco Reaproveitável", "metrica": "docker_reclaimable_mb", "operador": ">", "threshold": 500, "duracao_minutos": 0, "severidade": "aviso", "cooldown_minutos": 1440},
 ]
 
 _DEFAULT_CONFIG = {
@@ -238,6 +239,12 @@ def init_db():
         if session.query(AlertRule).count() == 0:
             for rule in _DEFAULT_RULES:
                 session.add(AlertRule(**rule))
+        if not session.query(AlertRule).filter_by(nome="Espaço em Disco Reaproveitável").first():
+            session.add(AlertRule(
+                nome="Espaço em Disco Reaproveitável", metrica="docker_reclaimable_mb",
+                operador=">", threshold=500, duracao_minutos=0,
+                severidade="aviso", cooldown_minutos=1440,
+            ))
         for key, value in _DEFAULT_CONFIG.items():
             if not session.get(Config, key):
                 session.add(Config(key=key, value=value))
