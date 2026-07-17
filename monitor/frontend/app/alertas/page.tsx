@@ -40,7 +40,7 @@ interface AlertRule {
 
 type Tab = 'ativas' | 'historico' | 'regras'
 
-const METRICAS = ['cpu_percent', 'ram_percent', 'disk_percent', 'temperature_c', 'load_1m', 'container_stopped']
+const METRICAS = ['cpu_percent', 'ram_percent', 'disk_percent', 'temperature_c', 'load_1m', 'container_stopped', 'docker_reclaimable_mb']
 const OPERADORES = ['>', '<', '>=', '<=']
 const SEVERIDADES = ['critico', 'aviso', 'info']
 
@@ -51,6 +51,7 @@ const METRICA_LABELS: Record<string, string> = {
   temperature_c: 'Temperatura (°C)',
   load_1m: 'Load Average 1m',
   container_stopped: 'Container Parado',
+  docker_reclaimable_mb: 'Espaço Reaproveitável (Docker)',
 }
 
 function elapsed(from: string): string {
@@ -135,6 +136,14 @@ function renderContexto(ctx: Record<string, any> | null): ReactNode {
           ? 'finalizado por falta de memória (OOM Killed)'
           : `código de saída ${ctx.exit_code ?? '—'}`}
         {ctx.erro ? ` — ${ctx.erro}` : ''}
+      </div>
+    )
+  }
+  if (ctx.imagens_orfas) {
+    linhas.push(
+      <div key="imagens_orfas">
+        <strong>Imagens sem container associado: </strong>
+        {ctx.imagens_orfas.map((i: any) => `${i.repo_tag} (${i.tamanho_mb} MB)`).join(', ')}
       </div>
     )
   }
