@@ -127,6 +127,18 @@ class ContainerActionLog(Base):
     erro = Column(Text, nullable=True)
 
 
+class Fail2banActionLog(Base):
+    __tablename__ = "fail2ban_action_log"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    performed_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    username = Column(String, nullable=False)
+    jail_nome = Column(String, nullable=False)
+    acao = Column(String, nullable=False)
+    detalhes = Column(Text, nullable=True)
+    sucesso = Column(Integer, default=1)
+    erro = Column(Text, nullable=True)
+
+
 class AccessLog(Base):
     __tablename__ = "access_log"
     id = Column(Integer, primary_key=True, autoincrement=True)

@@ -133,6 +133,24 @@ def test_insert_container_action_log(test_db):
     assert fetched.sucesso == 1
 
 
+def test_insert_fail2ban_action_log(test_db):
+    from datetime import datetime
+    with Session(test_db.engine) as session:
+        record = test_db.Fail2banActionLog(
+            performed_at=datetime.utcnow(),
+            username="admin",
+            jail_nome="vps-monitor-teste",
+            acao="create",
+            sucesso=1,
+        )
+        session.add(record)
+        session.commit()
+        fetched = session.query(test_db.Fail2banActionLog).first()
+    assert fetched.jail_nome == "vps-monitor-teste"
+    assert fetched.acao == "create"
+    assert fetched.sucesso == 1
+
+
 def test_tabela_access_log_criada(test_db):
     with test_db.engine.connect() as conn:
         result = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))
