@@ -103,7 +103,7 @@ def _record_notification(session: Session, alert_log_id: int, canal: str, tipo: 
     ))
 
 
-def _evaluate_rule(session: Session, rule: AlertRule, value: float, mensagem: str, now: datetime, vps_name: str, containers: list):
+def _evaluate_rule(session: Session, rule: AlertRule, value: float, mensagem: str, now: datetime, vps_name: str, containers: list, extra_context: Optional[dict] = None):
     op = _OPERATORS.get(rule.operador)
     if op is None or value is None:
         return
@@ -117,7 +117,7 @@ def _evaluate_rule(session: Session, rule: AlertRule, value: float, mensagem: st
     )
 
     if condition_true and open_log is None:
-        contexto = _build_metric_context(rule.metrica, containers, session)
+        contexto = extra_context if extra_context is not None else _build_metric_context(rule.metrica, containers, session)
         open_log = AlertLog(
             rule_id=rule.id,
             triggered_at=now,

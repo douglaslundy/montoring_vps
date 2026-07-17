@@ -411,3 +411,25 @@ def test_container_parado_notifica_resolucao(fresh_db):
     assert len(resolucoes) == 1
     assert resolucoes[0].status == "enviado"
     mock_res.assert_called_once()
+
+
+def test_evaluate_rule_usa_extra_context_quando_fornecido(fresh_db):
+    from notifications.alert_engine import _evaluate_rule
+    from sqlalchemy.orm import Session
+    import json
+
+    rule_id = add_rule(fresh_db, threshold=500.0, metrica="docker_reclaimable_mb", operador=">")
+
+    with Session(fresh_db) as s:
+        rule = s.get(AlertRule, rule_id)
+        _evaluate_rule(
+            s, rule, 800.0, "teste", datetime.utcnow(), "VPS Teste", [],
+            extra_context={"imagens_orfas": [{"repo_tag": "old:latest", "tamanho_mb": 800.0}]},
+        )
+        s.commit()
+
+    with Session(fresh_db) as s:
+        log = s.query(AlertLog).first()
+    assert log is not None
+    contexto = json.loads(log.contexto)
+    assert contexto["imagens_orfas"][0]["repo_tag"] == "old:latest"
