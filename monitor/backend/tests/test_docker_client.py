@@ -324,3 +324,41 @@ async def test_remove_container_propaga_erro_409_quando_rodando():
     with patch.object(client, "_client", return_value=mock_http):
         with pytest.raises(httpx.HTTPStatusError):
             await client.remove_container("abc123")
+
+
+@pytest.mark.asyncio
+async def test_list_images_chama_endpoint_correto():
+    from collector.docker_client import DockerClient
+    client = DockerClient()
+
+    mock_data = [
+        {"Id": "sha256:abc", "RepoTags": ["corridas-app:latest"], "Size": 1330000000, "Containers": 1},
+        {"Id": "sha256:def", "RepoTags": ["corridas-app:rollback-old"], "Size": 1320000000, "Containers": 0},
+    ]
+    mock_http = _make_mock_http_client(mock_data)
+    with patch.object(client, "_client", return_value=mock_http):
+        result = await client.list_images()
+
+    assert result == mock_data
+    mock_http.get.assert_called_once_with("/images/json", params={"all": False})
+
+
+@pytest.mark.asyncio
+async def test_prune_build_cache_chama_endpoint_correto():
+    from collector.docker_client import DockerClient
+    client = DockerClient()
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json.return_value = {"CachesDeleted": ["abc123"], "SpaceReclaimed": 131600000000}
+    mock_http = AsyncMock()
+    mock_http.post = AsyncMock(return_value=mock_response)
+    mock_http.__aenter__ = AsyncMock(return_value=mock_http)
+    mock_http.__aexit__ = AsyncMock(return_value=False)
+
+    with patch.object(client, "_client", return_value=mock_http):
+        result = await client.prune_build_cache()
+
+    assert result == {"CachesDeleted": ["abc123"], "SpaceReclaimed": 131600000000}
+    mock_http.post.assert_called_once_with("/build/prune", params={"all": "true"})

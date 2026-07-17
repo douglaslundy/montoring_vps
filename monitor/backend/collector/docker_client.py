@@ -123,6 +123,18 @@ class DockerClient:
             r = await c.delete(f"/containers/{container_id}")
             r.raise_for_status()
 
+    async def list_images(self) -> list[dict]:
+        async with self._client() as c:
+            r = await c.get("/images/json", params={"all": False})
+            r.raise_for_status()
+            return r.json()
+
+    async def prune_build_cache(self) -> dict:
+        async with self._client() as c:
+            r = await c.post("/build/prune", params={"all": "true"})
+            r.raise_for_status()
+            return r.json()
+
     async def list_containers_with_size(self) -> list[dict]:
         async with self._client() as c:
             r = await c.get("/containers/json", params={"all": True, "size": True})
