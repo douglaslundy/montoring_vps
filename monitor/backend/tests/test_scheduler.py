@@ -168,3 +168,83 @@ async def test_cleanup_remove_alert_notification_antigo(test_db, monkeypatch):
     with Session(test_db.engine) as session:
         rows = session.query(test_db.AlertNotification).all()
     assert len(rows) == 1
+
+
+@pytest.mark.asyncio
+async def test_check_docker_cleanup_poda_cache_sempre(test_db, monkeypatch):
+    monkeypatch.setenv("JWT_SECRET", "test-secret-key")
+    import importlib
+    import collector.scheduler as sched
+    importlib.reload(sched)
+
+    with patch.object(sched.docker_client, "prune_build_cache", AsyncMock(return_value={})) as mock_prune, \
+         patch.object(sched.docker_client, "list_images", AsyncMock(return_value=[])):
+        await sched.check_docker_cleanup()
+
+    mock_prune.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_check_docker_cleanup_erro_list_images_nao_lanca_excecao(test_db, monkeypatch):
+    monkeypatch.setenv("JWT_SECRET", "test-secret-key")
+    import importlib
+    import collector.scheduler as sched
+    importlib.reload(sched)
+
+    with patch.object(sched.docker_client, "prune_build_cache", AsyncMock(return_value={})), \
+         patch.object(sched.docker_client, "list_images", AsyncMock(side_effect=Exception("socket indisponivel"))):
+        await sched.check_docker_cleanup()  # não deve levantar
+
+
+@pytest.mark.asyncio
+async def test_check_docker_cleanup_dispara_alerta_acima_do_threshold(test_db, monkeypatch):
+    monkeypatch.setenv("JWT_SECRET", "test-secret-key")
+    import importlib
+    import collector.scheduler as sched
+    importlib.reload(sched)
+    from sqlalchemy.orm import Session
+
+    with Session(test_db.engine) as session:
+        session.add(test_db.AlertRule(
+            nome="Espaço em Disco Reaproveitável", metrica="docker_reclaimable_mb",
+            operador=">", threshold=500, duracao_minutos=0, severidade="aviso",
+            canal_email=0, canal_whatsapp=0, cooldown_minutos=1440, ativo=1,
+        ))
+        session.commit()
+
+    mock_images = [
+        {"Id": "sha256:abc", "RepoTags": ["corridas-app:latest"], "Size": 1330000000, "Containers": 1},
+        {"Id": "sha256:def", "RepoTags": ["corridas-app:rollback-old"], "Size": 700 * 1024 * 1024, "Containers": 0},
+    ]
+    with patch.object(sched.docker_client, "prune_build_cache", AsyncMock(return_value={})), \
+         patch.object(sched.docker_client, "list_images", AsyncMock(return_value=mock_images)):
+        await sched.check_docker_cleanup()
+
+    with Session(test_db.engine) as session:
+        log = session.query(test_db.AlertLog).first()
+    assert log is not None
+    assert log.metrica == "docker_reclaimable_mb"
+    assert log.valor_no_disparo == pytest.approx(700.0, abs=0.5)
+    import json
+    contexto = json.loads(log.contexto)
+    assert contexto["imagens_orfas"][0]["repo_tag"] == "corridas-app:rollback-old"
+
+
+@pytest.mark.asyncio
+async def test_check_docker_cleanup_nao_dispara_sem_regra_ativa(test_db, monkeypatch):
+    monkeypatch.setenv("JWT_SECRET", "test-secret-key")
+    import importlib
+    import collector.scheduler as sched
+    importlib.reload(sched)
+    from sqlalchemy.orm import Session
+
+    mock_images = [
+        {"Id": "sha256:def", "RepoTags": ["old:latest"], "Size": 900 * 1024 * 1024, "Containers": 0},
+    ]
+    with patch.object(sched.docker_client, "prune_build_cache", AsyncMock(return_value={})), \
+         patch.object(sched.docker_client, "list_images", AsyncMock(return_value=mock_images)):
+        await sched.check_docker_cleanup()
+
+    with Session(test_db.engine) as session:
+        count = session.query(test_db.AlertLog).count()
+    assert count == 0

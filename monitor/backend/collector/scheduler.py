@@ -8,9 +8,9 @@ from sqlalchemy.orm import Session
 import models.database as db_module
 from collector.docker_client import DockerClient
 from collector.host import collect_host_metrics
-from models.database import AccessLog, AccessLogDaily, AccessLogHourly, AlertNotification, ContainerDiskUsage, ContainerMetrics, MetricsHistory, engine
+from models.database import AccessLog, AccessLogDaily, AccessLogHourly, AlertNotification, AlertRule, ContainerDiskUsage, ContainerMetrics, MetricsHistory, engine
 from collector.access_log_tailer import tail_access_log
-from notifications.alert_engine import evaluate
+from notifications.alert_engine import _evaluate_rule, evaluate
 from ws.stream import manager
 
 logger = logging.getLogger(__name__)
@@ -129,11 +129,54 @@ def get_last_metrics() -> dict:
     return _last_metrics
 
 
+async def check_docker_cleanup():
+    try:
+        await docker_client.prune_build_cache()
+    except Exception:
+        logger.exception("Erro ao limpar build cache do Docker")
+
+    try:
+        images = await docker_client.list_images()
+    except Exception:
+        logger.exception("Erro ao listar imagens Docker")
+        return
+
+    orfas = [img for img in images if (img.get("Containers") or 0) == 0]
+    reclaimable_mb = sum((img.get("Size") or 0) for img in orfas) / 1024 ** 2
+
+    now = datetime.utcnow()
+    with Session(engine) as session:
+        from api.config import get_config
+        vps_name = get_config(session, "server_name", "VPS Monitor")
+        rules = session.query(AlertRule).filter(
+            AlertRule.ativo == 1, AlertRule.metrica == "docker_reclaimable_mb"
+        ).all()
+        if not rules:
+            return
+
+        extra_context = {
+            "imagens_orfas": [
+                {
+                    "repo_tag": (img.get("RepoTags") or ["<none>:<none>"])[0],
+                    "tamanho_mb": round((img.get("Size") or 0) / 1024 ** 2, 1),
+                    "criada_em": img.get("Created"),
+                }
+                for img in orfas
+            ]
+        } if orfas else None
+
+        for rule in rules:
+            mensagem = f"{rule.nome}: {reclaimable_mb:.0f} MB em imagens sem container associado"
+            _evaluate_rule(session, rule, reclaimable_mb, mensagem, now, vps_name, [], extra_context=extra_context)
+        session.commit()
+
+
 def start_scheduler():
     scheduler.add_job(collect_and_store, "interval", seconds=30, id="collect", replace_existing=True)
     scheduler.add_job(collect_disk_usage, "interval", minutes=10, id="disk_usage", replace_existing=True)
     scheduler.add_job(tail_access_log, "interval", seconds=15, id="access_log_tail", replace_existing=True)
     scheduler.add_job(_cleanup, "interval", hours=1, id="cleanup", replace_existing=True)
+    scheduler.add_job(check_docker_cleanup, "interval", hours=6, id="docker_cleanup", replace_existing=True)
     if not scheduler.running:
         scheduler.start()
     asyncio.ensure_future(collect_and_store())
