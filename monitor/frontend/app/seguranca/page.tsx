@@ -76,10 +76,10 @@ export default function SegurancaPage() {
     try {
       if (editSlug) {
         await api.put(`/fail2ban/jails/${editSlug}`, form);
-        setToast({ msg: 'Jail atualizado', type: 'success' });
+        setToast({ msg: 'Jail atualizado — pode levar até 1 minuto para entrar em vigor', type: 'success' });
       } else {
         await api.post('/fail2ban/jails', form);
-        setToast({ msg: 'Jail criado', type: 'success' });
+        setToast({ msg: 'Jail criado — pode levar até 1 minuto para entrar em vigor', type: 'success' });
       }
       setShowForm(false);
       loadJails();
@@ -92,7 +92,7 @@ export default function SegurancaPage() {
     if (!deleteAlvo) return;
     try {
       await api.delete(`/fail2ban/jails/${deleteAlvo}`);
-      setToast({ msg: 'Jail excluído', type: 'success' });
+      setToast({ msg: 'Jail excluído — pode levar até 1 minuto para desativar', type: 'success' });
       loadJails();
     } catch { setToast({ msg: 'Erro ao excluir jail', type: 'error' }); }
     setDeleteAlvo(null);
