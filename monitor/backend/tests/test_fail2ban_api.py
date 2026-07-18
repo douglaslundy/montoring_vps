@@ -39,8 +39,12 @@ def test_list_jails(auth_client):
 
 
 def test_criar_jail_sucesso(auth_client, test_db):
+    # create_jail usa reload_all() (nao reload_jail) porque o jail ainda nao
+    # existe pro fail2ban em execucao — "reload <jail>" falha com "does not
+    # exist" pra jails que o servidor nunca carregou (confirmado manualmente
+    # em producao); so o reload geral (sem nome) pega jails novos.
     with patch("api.fail2ban.fail2ban_client.dry_run_regex", AsyncMock(return_value=(True, "1 matched"))), \
-         patch("api.fail2ban.fail2ban_client.reload_jail", AsyncMock(return_value=None)) as mock_reload:
+         patch("api.fail2ban.fail2ban_client.reload_all", AsyncMock(return_value=None)) as mock_reload:
         r = auth_client.post("/api/fail2ban/jails", json={
             "nome_exibicao": "Teste de Bloqueio",
             "log_path": "/var/log/teste.log",
@@ -50,13 +54,30 @@ def test_criar_jail_sucesso(auth_client, test_db):
         })
     assert r.status_code == 201
     assert r.json()["slug"] == "vps-monitor-teste-de-bloqueio"
-    mock_reload.assert_awaited_once_with("vps-monitor-teste-de-bloqueio")
+    mock_reload.assert_awaited_once_with()
+
+
+def test_criar_jail_reload_falha_remove_arquivos(auth_client, test_db):
+    import os
+    with patch("api.fail2ban.fail2ban_client.dry_run_regex", AsyncMock(return_value=(True, "1 matched"))), \
+         patch("api.fail2ban.fail2ban_client.reload_all", AsyncMock(side_effect=RuntimeError("ERROR NOK"))):
+        r = auth_client.post("/api/fail2ban/jails", json={
+            "nome_exibicao": "Falha Reload",
+            "log_path": "/var/log/teste.log",
+            "sample_log_line": "203.0.113.5 - erro de teste",
+            "regex": r"^<HOST> - erro de teste$",
+            "maxretry": 5, "findtime": 600, "bantime": 3600, "port": "http,https",
+        })
+    assert r.status_code == 500
+    assert "NOK" in r.json()["detail"]
+    assert not os.path.exists(os.path.join(os.environ["FAIL2BAN_FILTER_DIR"], "vps-monitor-falha-reload.conf"))
+    assert not os.path.exists(os.path.join(os.environ["FAIL2BAN_JAIL_DIR"], "vps-monitor-falha-reload.local"))
 
     from sqlalchemy.orm import Session
     with Session(test_db.engine) as session:
         log = session.query(test_db.Fail2banActionLog).first()
+    assert log.sucesso == 0
     assert log.acao == "create"
-    assert log.sucesso == 1
 
 
 def test_criar_jail_regex_invalido(auth_client):
@@ -92,6 +113,32 @@ def test_editar_jail_bloqueia_sem_prefixo(auth_client):
         "regex": "^<HOST>$", "maxretry": 5, "findtime": 600, "bantime": 3600, "port": "ssh",
     })
     assert r.status_code == 403
+
+
+def test_editar_jail_reload_falha_restaura_arquivos_anteriores(auth_client, test_db):
+    import os
+    jail_path = os.path.join(os.environ["FAIL2BAN_JAIL_DIR"], "vps-monitor-teste.local")
+    filter_path = os.path.join(os.environ["FAIL2BAN_FILTER_DIR"], "vps-monitor-teste.conf")
+    conteudo_jail_original = "[vps-monitor-teste]\nlogpath = /var/log/original.log\n"
+    conteudo_filtro_original = "[Definition]\nfailregex = original\n"
+    with open(jail_path, "w") as f:
+        f.write(conteudo_jail_original)
+    with open(filter_path, "w") as f:
+        f.write(conteudo_filtro_original)
+
+    with patch("api.fail2ban.fail2ban_client.dry_run_regex", AsyncMock(return_value=(True, "1 matched"))), \
+         patch("api.fail2ban.fail2ban_client.reload_jail", AsyncMock(side_effect=RuntimeError("ERROR NOK"))):
+        r = auth_client.put("/api/fail2ban/jails/vps-monitor-teste", json={
+            "nome_exibicao": "vps-monitor-teste", "log_path": "/var/log/novo.log",
+            "sample_log_line": "x", "regex": "^novo$",
+            "maxretry": 5, "findtime": 600, "bantime": 3600, "port": "ssh",
+        })
+
+    assert r.status_code == 500
+    with open(jail_path) as f:
+        assert f.read() == conteudo_jail_original
+    with open(filter_path) as f:
+        assert f.read() == conteudo_filtro_original
 
 
 def test_excluir_jail_bloqueia_sem_prefixo(auth_client):

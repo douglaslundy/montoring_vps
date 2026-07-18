@@ -51,13 +51,26 @@ async def dry_run_regex(sample_line: str, filter_path: str) -> tuple[bool, str]:
     return matched, out
 
 
+def _raise_if_failed(code: int, out: str, err: str) -> None:
+    if code != 0:
+        raise RuntimeError((err or out).strip())
+
+
 async def reload_jail(nome: str) -> None:
-    await _run("fail2ban-client", "reload", nome)
+    code, out, err = await _run("fail2ban-client", "reload", nome)
+    _raise_if_failed(code, out, err)
+
+
+async def reload_all() -> None:
+    code, out, err = await _run("fail2ban-client", "reload")
+    _raise_if_failed(code, out, err)
 
 
 async def stop_jail(nome: str) -> None:
-    await _run("fail2ban-client", "stop", nome)
+    code, out, err = await _run("fail2ban-client", "stop", nome)
+    _raise_if_failed(code, out, err)
 
 
 async def unban_ip(nome: str, ip: str) -> None:
-    await _run("fail2ban-client", "set", nome, "unbanip", ip)
+    code, out, err = await _run("fail2ban-client", "set", nome, "unbanip", ip)
+    _raise_if_failed(code, out, err)

@@ -86,9 +86,20 @@ async def create_jail(body: JailIn, token_data: dict = Depends(get_token_data)):
         _log_action(username, slug, "create", sucesso=0, erro=saida)
         raise HTTPException(status_code=400, detail=f"O regex não bateu com a linha de exemplo fornecida: {saida}")
 
-    _write_jail_file(slug, body)
+    jail_path = _write_jail_file(slug, body)
 
-    await fail2ban_client.reload_jail(slug)
+    try:
+        # reload_all (sem nome de jail), nao reload_jail: o jail acabou de
+        # ser criado e o fail2ban em execucao ainda nao o conhece —
+        # "reload <jail>" falha com "does not exist" pra jails que o
+        # servidor nunca carregou. So o reload geral pega jails novos.
+        await fail2ban_client.reload_all()
+    except RuntimeError as e:
+        os.remove(filter_path)
+        os.remove(jail_path)
+        _log_action(username, slug, "create", sucesso=0, erro=str(e))
+        raise HTTPException(status_code=500, detail=f"Falha ao ativar o jail no fail2ban: {e}")
+
     _log_action(username, slug, "create", sucesso=1)
     return {"slug": slug}
 
@@ -105,17 +116,39 @@ async def update_jail(slug: str, body: JailIn, token_data: dict = Depends(get_to
         raise HTTPException(status_code=400, detail=f"Regex inválido: {e}")
 
     filter_path = os.path.join(FAIL2BAN_FILTER_DIR, f"{slug}.conf")
+    jail_path = os.path.join(FAIL2BAN_JAIL_DIR, f"{slug}.local")
+    filter_backup = open(filter_path, encoding="utf-8").read() if os.path.exists(filter_path) else None
+    jail_backup = open(jail_path, encoding="utf-8").read() if os.path.exists(jail_path) else None
+
     with open(filter_path, "w", encoding="utf-8") as f:
         f.write(f"[Definition]\nfailregex = {body.regex}\nignoreregex =\n")
 
     matched, saida = await fail2ban_client.dry_run_regex(body.sample_log_line, filter_path)
     if not matched:
+        if filter_backup is not None:
+            with open(filter_path, "w", encoding="utf-8") as f:
+                f.write(filter_backup)
         _log_action(username, slug, "edit", sucesso=0, erro=saida)
         raise HTTPException(status_code=400, detail=f"O regex não bateu com a linha de exemplo fornecida: {saida}")
 
     _write_jail_file(slug, body)
 
-    await fail2ban_client.reload_jail(slug)
+    try:
+        await fail2ban_client.reload_jail(slug)
+    except RuntimeError as e:
+        if filter_backup is not None:
+            with open(filter_path, "w", encoding="utf-8") as f:
+                f.write(filter_backup)
+        if jail_backup is not None:
+            with open(jail_path, "w", encoding="utf-8") as f:
+                f.write(jail_backup)
+        try:
+            await fail2ban_client.reload_jail(slug)
+        except RuntimeError:
+            pass
+        _log_action(username, slug, "edit", sucesso=0, erro=str(e))
+        raise HTTPException(status_code=500, detail=f"Falha ao aplicar a edição no fail2ban: {e}")
+
     _log_action(username, slug, "edit", sucesso=1)
     return {"ok": True}
 

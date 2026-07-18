@@ -94,6 +94,16 @@ async def test_stop_jail_chama_comando_correto():
 
 
 @pytest.mark.asyncio
+async def test_stop_jail_lanca_excecao_em_falha():
+    from collector import fail2ban_client
+
+    mock_run = AsyncMock(return_value=(255, "", "Sorry but the jail 'x' does not exist\n"))
+    with patch.object(fail2ban_client, "_run", mock_run):
+        with pytest.raises(RuntimeError, match="does not exist"):
+            await fail2ban_client.stop_jail("vps-monitor-inexistente")
+
+
+@pytest.mark.asyncio
 async def test_unban_ip_chama_comando_correto():
     from collector import fail2ban_client
 
@@ -102,3 +112,44 @@ async def test_unban_ip_chama_comando_correto():
         await fail2ban_client.unban_ip("sshd", "203.0.113.5")
 
     mock_run.assert_awaited_once_with("fail2ban-client", "set", "sshd", "unbanip", "203.0.113.5")
+
+
+@pytest.mark.asyncio
+async def test_unban_ip_lanca_excecao_em_falha():
+    from collector import fail2ban_client
+
+    mock_run = AsyncMock(return_value=(255, "", "ERROR NOK\n"))
+    with patch.object(fail2ban_client, "_run", mock_run):
+        with pytest.raises(RuntimeError, match="NOK"):
+            await fail2ban_client.unban_ip("sshd", "203.0.113.5")
+
+
+@pytest.mark.asyncio
+async def test_reload_jail_lanca_excecao_em_falha():
+    from collector import fail2ban_client
+
+    mock_run = AsyncMock(return_value=(255, "", "Sorry but the jail 'x' does not exist\n"))
+    with patch.object(fail2ban_client, "_run", mock_run):
+        with pytest.raises(RuntimeError, match="does not exist"):
+            await fail2ban_client.reload_jail("vps-monitor-inexistente")
+
+
+@pytest.mark.asyncio
+async def test_reload_all_chama_comando_sem_nome_de_jail():
+    from collector import fail2ban_client
+
+    mock_run = AsyncMock(return_value=(0, "OK", ""))
+    with patch.object(fail2ban_client, "_run", mock_run):
+        await fail2ban_client.reload_all()
+
+    mock_run.assert_awaited_once_with("fail2ban-client", "reload")
+
+
+@pytest.mark.asyncio
+async def test_reload_all_lanca_excecao_em_falha():
+    from collector import fail2ban_client
+
+    mock_run = AsyncMock(return_value=(255, "", "ERROR NOK\n"))
+    with patch.object(fail2ban_client, "_run", mock_run):
+        with pytest.raises(RuntimeError, match="NOK"):
+            await fail2ban_client.reload_all()
