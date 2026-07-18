@@ -1,6 +1,5 @@
 import os
 import re
-import unicodedata
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -8,6 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 import models.database as db_module
+from api._slug import slugify as _slugify
 from api.auth import get_token_data, verify_token_header
 from collector import fail2ban_client
 from models.database import Fail2banActionLog
@@ -16,13 +16,6 @@ FAIL2BAN_JAIL_DIR = os.environ.get("FAIL2BAN_JAIL_DIR", "/etc/fail2ban/jail.d")
 FAIL2BAN_FILTER_DIR = os.environ.get("FAIL2BAN_FILTER_DIR", "/etc/fail2ban/filter.d")
 
 router = APIRouter(prefix="/api/fail2ban", dependencies=[Depends(verify_token_header)])
-
-
-def _slugify(nome_exibicao: str) -> str:
-    nfkd = unicodedata.normalize("NFKD", nome_exibicao)
-    ascii_str = nfkd.encode("ascii", "ignore").decode("ascii")
-    slug = re.sub(r"[^a-z0-9]+", "-", ascii_str.lower()).strip("-")
-    return f"vps-monitor-{slug}"
 
 
 def _log_action(username: str, jail_nome: str, acao: str, sucesso: int = 1, erro: Optional[str] = None, detalhes: Optional[str] = None):
