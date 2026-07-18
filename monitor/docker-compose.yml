@@ -40,6 +40,7 @@ services:
       - /etc/fail2ban/jail.d:/etc/fail2ban/jail.d
       - /etc/fail2ban/filter.d:/etc/fail2ban/filter.d
       - /var/run/fail2ban/fail2ban.sock:/var/run/fail2ban/fail2ban.sock
+      - /opt/traefik/dynamic:/opt/traefik/dynamic:ro
     networks:
       - vps_monitor_net
     restart: unless-stopped
