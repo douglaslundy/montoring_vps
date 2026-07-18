@@ -47,7 +47,7 @@ Nenhum outro volume novo (sem montar `.git` nem `certs/` — motivo detalhado na
 
 ### `backend/api/traefik.py` (novo)
 
-Prefixo de rota: `/api/traefik`, protegido por `verify_token_header` (mesmo padrão de `api/fail2ban.py`).
+Segue o padrão self-contained de `api/fail2ban.py` (não o de `api/projects.py`, que recebe prefixo/proteção de fora): `router = APIRouter(prefix="/api/traefik", dependencies=[Depends(verify_token_header)])`. Em `backend/main.py`, registrar com `app.include_router(traefik_router)`, sem `prefix="/api"` nem `**_protected` (já vêm embutidos no router).
 
 - `GET /api/traefik/routes` — lista arquivos `*.yml` em `TRAEFIK_DYNAMIC_DIR` (env var, default `/opt/traefik/dynamic` — já existe como `TRAEFIK_DYNAMIC_DIR` em `api/projects.py`, reaproveitar). Cada item: `{filename, managed: bool, content: str}`. `managed = filename.startswith("vps-monitor-")`.
 - `POST /api/traefik/routes` — corpo: `{nome_exibicao: str, yaml_content: str}`.
