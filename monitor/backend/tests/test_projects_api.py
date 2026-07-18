@@ -5,6 +5,20 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 
+@pytest.fixture(autouse=True)
+def _garante_jwt_secret(monkeypatch):
+    # api.projects importa (transitivamente, via collector.scheduler -> ws.stream)
+    # api.auth, que levanta RuntimeError no import se JWT_SECRET nao estiver
+    # setado. Quando este arquivo roda dentro da suite completa, algum teste
+    # anterior ja deixou api.auth importado com JWT_SECRET setado (modulo fica
+    # cacheado em sys.modules) e isso passa despercebido. Rodando este arquivo
+    # isolado, os testes que importam api.projects diretamente (sem passar
+    # pela fixture auth_client) sao os primeiros a disparar essa cadeia de
+    # import e quebram. Este fixture autouse garante JWT_SECRET setado antes
+    # do corpo de qualquer teste deste arquivo rodar, independente de ordem.
+    monkeypatch.setenv("JWT_SECRET", "test-secret-32-chars-long-ok-yes")
+
+
 @pytest.fixture
 def auth_client(test_db, monkeypatch):
     monkeypatch.setenv("MONITOR_USER", "admin")
