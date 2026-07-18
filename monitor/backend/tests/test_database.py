@@ -268,3 +268,21 @@ def test_init_db_backfill_regra_espaco_reaproveitavel_banco_existente(tmp_path, 
     assert len(rules) == 1
     assert rules[0].metrica == "docker_reclaimable_mb"
     assert rules[0].threshold == 500
+
+
+def test_insert_traefik_action_log(test_db):
+    from datetime import datetime
+    with Session(test_db.engine) as session:
+        record = test_db.TraefikActionLog(
+            performed_at=datetime.utcnow(),
+            username="admin",
+            filename="vps-monitor-teste.yml",
+            acao="create",
+            sucesso=1,
+        )
+        session.add(record)
+        session.commit()
+        fetched = session.query(test_db.TraefikActionLog).first()
+    assert fetched.filename == "vps-monitor-teste.yml"
+    assert fetched.acao == "create"
+    assert fetched.sucesso == 1

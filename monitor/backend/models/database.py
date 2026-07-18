@@ -139,6 +139,17 @@ class Fail2banActionLog(Base):
     erro = Column(Text, nullable=True)
 
 
+class TraefikActionLog(Base):
+    __tablename__ = "traefik_action_log"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    performed_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    username = Column(String, nullable=False)
+    filename = Column(String, nullable=False)
+    acao = Column(String, nullable=False)
+    sucesso = Column(Integer, default=1)
+    erro = Column(Text, nullable=True)
+
+
 class AccessLog(Base):
     __tablename__ = "access_log"
     id = Column(Integer, primary_key=True, autoincrement=True)
