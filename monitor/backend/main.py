@@ -15,6 +15,7 @@ from api.notifications import router as notifications_router
 from api.whatsapp import router as whatsapp_router
 from api.access_logs import router as access_logs_router
 from api.fail2ban import router as fail2ban_router
+from api.projects import router as projects_router
 from ws.stream import ws_router
 from models.database import init_db
 
@@ -36,6 +37,7 @@ app.include_router(health_router)
 app.include_router(auth_router, prefix="/api")
 app.include_router(metrics_router, prefix="/api", **_protected)
 app.include_router(containers_router, prefix="/api", **_protected)
+app.include_router(projects_router, prefix="/api", **_protected)
 app.include_router(alerts_router)
 app.include_router(config_router)
 app.include_router(notifications_router)
