@@ -362,3 +362,47 @@ async def test_prune_build_cache_chama_endpoint_correto():
 
     assert result == {"CachesDeleted": ["abc123"], "SpaceReclaimed": 131600000000}
     mock_http.post.assert_called_once_with("/build/prune", params={"all": "true"})
+
+
+@pytest.mark.asyncio
+async def test_collect_all_inclui_labels():
+    from collector.docker_client import DockerClient
+
+    containers_com_label = [{
+        **MOCK_CONTAINERS[0],
+        "Labels": {"com.docker.compose.project": "mecanicapro"},
+    }]
+
+    async def mock_list():
+        return containers_com_label
+
+    async def mock_container_stats(cid):
+        return MOCK_PROCESSED_STATS
+
+    client = DockerClient()
+    with patch.object(client, "list_containers", mock_list), \
+         patch.object(client, "container_stats", mock_container_stats):
+        result = await client.collect_all()
+
+    assert result[0]["labels"] == {"com.docker.compose.project": "mecanicapro"}
+
+
+@pytest.mark.asyncio
+async def test_collect_all_labels_ausentes_vira_dict_vazio():
+    from collector.docker_client import DockerClient
+
+    containers_sem_label = [dict(MOCK_CONTAINERS[0])]
+    containers_sem_label[0].pop("Labels", None)
+
+    async def mock_list():
+        return containers_sem_label
+
+    async def mock_container_stats(cid):
+        return MOCK_PROCESSED_STATS
+
+    client = DockerClient()
+    with patch.object(client, "list_containers", mock_list), \
+         patch.object(client, "container_stats", mock_container_stats):
+        result = await client.collect_all()
+
+    assert result[0]["labels"] == {}

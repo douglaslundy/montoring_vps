@@ -206,5 +206,6 @@ class DockerClient:
                 "block_read_mb": block_read,
                 "block_write_mb": block_write,
                 "restart_count": container.get("HostConfig", {}).get("RestartCount", 0),
+                "labels": container.get("Labels") or {},
             })
         return result
