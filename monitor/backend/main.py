@@ -17,6 +17,7 @@ from api.access_logs import router as access_logs_router
 from api.fail2ban import router as fail2ban_router
 from api.projects import router as projects_router
 from api.traefik import router as traefik_router
+from api.backups import router as backups_router
 from ws.stream import ws_router
 from models.database import init_db
 
@@ -46,6 +47,7 @@ app.include_router(whatsapp_router)
 app.include_router(access_logs_router)
 app.include_router(fail2ban_router)
 app.include_router(traefik_router)
+app.include_router(backups_router)
 app.include_router(ws_router)
 
 
