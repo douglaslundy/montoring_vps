@@ -79,6 +79,17 @@ def test_criar_rota_sucesso(auth_client, test_db):
     assert log.sucesso == 1
 
 
+def test_criar_rota_nao_deixa_arquivo_temporario(auth_client):
+    auth_client.post("/api/traefik/routes", json={
+        "nome_exibicao": "Sem Lixo",
+        "yaml_content": VALID_YAML,
+    })
+
+    dynamic_dir = os.environ["TRAEFIK_DYNAMIC_DIR"]
+    arquivos = os.listdir(dynamic_dir)
+    assert arquivos == ["vps-monitor-sem-lixo.yml"]
+
+
 def test_criar_rota_yaml_invalido(auth_client):
     r = auth_client.post("/api/traefik/routes", json={
         "nome_exibicao": "Rota Invalida",

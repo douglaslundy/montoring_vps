@@ -42,6 +42,13 @@ def _validar_yaml(yaml_content: str) -> Optional[str]:
         return str(e)
 
 
+def _write_atomic(path: str, content: str) -> None:
+    tmp_path = f"{path}.tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        f.write(content)
+    os.replace(tmp_path, path)
+
+
 @router.get("/routes")
 def list_routes():
     if not os.path.isdir(TRAEFIK_DYNAMIC_DIR):
@@ -75,8 +82,7 @@ def create_route(body: RouteCreateIn, token_data: dict = Depends(get_token_data)
         _log_action(username, filename, "create", sucesso=0, erro=erro)
         raise HTTPException(status_code=400, detail=f"YAML inválido: {erro}")
 
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(body.yaml_content)
+    _write_atomic(path, body.yaml_content)
 
     _log_action(username, filename, "create", sucesso=1)
     return {"filename": filename}
@@ -97,8 +103,7 @@ def update_route(filename: str, body: RouteUpdateIn, token_data: dict = Depends(
         _log_action(username, filename, "edit", sucesso=0, erro=erro)
         raise HTTPException(status_code=400, detail=f"YAML inválido: {erro}")
 
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(body.yaml_content)
+    _write_atomic(path, body.yaml_content)
 
     _log_action(username, filename, "edit", sucesso=1)
     return {"ok": True}
