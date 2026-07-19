@@ -41,6 +41,7 @@ Dado um nome de projeto (`com.docker.compose.project`), o `backup-worker.sh`:
 3. Inspeciona os `Mounts` (`docker inspect`) de **cada** container listado no passo 1, coletando os nomes únicos de todo mount com `"Type": "volume"`.
 4. Snapshot = `tar` do diretório de trabalho (passo 2) + `tar` de cada volume nomeado (passo 3, via `/var/lib/docker/volumes/<nome>/_data`), compactados juntos num único `.tar.gz` com uma estrutura interna previsível (`workdir/` e `volumes/<nome>/`).
 5. Restore reverte o processo: extrai `workdir/` de volta pro diretório de trabalho original, e cada `volumes/<nome>/` de volta pro path do volume Docker correspondente.
+6. Parar/subir os containers é sempre `cd <working_dir> && docker compose stop` / `docker compose up -d` — o nome do projeto é resolvido pelo próprio Compose (via a chave `name:` pinada no `docker-compose.yml`, quando existir, como já é o caso do vps-monitor, ou pelo nome do diretório), mesmo mecanismo já usado em `deploy.sh`. Nunca usar `docker stop/start` direto por container individual (evita perder a ordem de dependência que o Compose já resolve).
 
 ### Modelo de dados — `backend/models/database.py`
 
@@ -56,8 +57,8 @@ class BackupJob(Base):
     __tablename__ = "backup_job"
     id = Column(Integer, primary_key=True, autoincrement=True)
     projeto = Column(String, nullable=False)
-    tipo = Column(String, nullable=False)          # snapshot | restore
-    arquivo = Column(String, nullable=True)          # nome do snapshot; obrigatório quando tipo=restore
+    tipo = Column(String, nullable=False)          # snapshot | restore | delete
+    arquivo = Column(String, nullable=True)          # nome do snapshot; obrigatório quando tipo=restore ou delete
     status = Column(String, nullable=False, default="pending")  # pending | running | done | failed
     criado_em = Column(DateTime, nullable=False, default=datetime.utcnow)
     concluido_em = Column(DateTime, nullable=True)
