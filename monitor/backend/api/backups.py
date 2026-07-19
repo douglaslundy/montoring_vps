@@ -1,6 +1,5 @@
 import os
 import re
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -39,6 +38,8 @@ def _job_pendente_existe(session: Session, projeto: str) -> bool:
 
 
 def _listar_snapshots(projeto: str) -> list[dict]:
+    if not _NOME_VALIDO_RE.match(projeto):
+        return []
     destino_dir = os.path.join(BACKUPS_DIR, projeto)
     if not os.path.isdir(destino_dir):
         return []

@@ -28,14 +28,27 @@ set -uo pipefail
 DB_PATH="/var/lib/docker/volumes/vps-monitor_vps_monitor_data/_data/monitor.db"
 BACKUPS_DIR="/opt/vps-monitor-backups"
 RETENCAO_PADRAO=5
+LOCK_FILE="/var/lock/backup-worker.lock"
 
 mkdir -p "$BACKUPS_DIR"
+
+# Impede que duas execucoes do cron rodem ao mesmo tempo (ex: um snapshot
+# demorado ainda em andamento quando o minuto seguinte dispara de novo) —
+# sem isso, dois projetos diferentes poderiam ter seus containers parados
+# simultaneamente, multiplicando o downtime e a carga de I/O na VPS
+# compartilhada. A proxima execucao do cron simplesmente sai e tenta de
+# novo no minuto seguinte.
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+  echo "$(date -Iseconds) outra execucao do backup-worker.sh ja esta em andamento, saindo." >&2
+  exit 0
+fi
 
 # $projeto so chega aqui depois de validado por _validar_nome() na API
 # (regex ^[a-zA-Z0-9_-]+$), entao a interpolacao direta nas queries abaixo
 # nunca contem aspas nem caracteres especiais de SQL.
 sqlite3_exec() {
-  sqlite3 "$DB_PATH" "$1"
+  sqlite3 "$DB_PATH" "PRAGMA busy_timeout=5000; $1"
 }
 
 fazer_snapshot() {
@@ -216,6 +229,14 @@ aplicar_retencao() {
     done
   fi
 }
+
+# ---------- 0. Libera jobs presos (worker interrompido no meio de uma execucao) ----------
+# Se o worker morreu depois de marcar um job como "running" mas antes de
+# concluir (reboot do host, cron matado, etc.), o job ficaria "running" pra
+# sempre — bloqueando o projeto (409 em qualquer tentativa nova) e sendo
+# pulado silenciosamente pelo agendamento. 2h e um limite bem generoso dado
+# que snapshots hoje levam segundos/minutos (volumes pequenos).
+sqlite3_exec "UPDATE backup_job SET status='failed', concluido_em=datetime('now'), erro='Job travado em running por mais de 2h - provavelmente o worker foi interrompido (reboot, cron matado) no meio da execucao.' WHERE status='running' AND criado_em < datetime('now', '-2 hours');"
 
 # ---------- 1. Processa no maximo um job pendente por execucao ----------
 job_linha=$(sqlite3_exec "SELECT id, projeto, tipo, IFNULL(arquivo, '') FROM backup_job WHERE status='pending' ORDER BY criado_em LIMIT 1;")

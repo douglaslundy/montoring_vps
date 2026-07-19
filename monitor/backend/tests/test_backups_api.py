@@ -88,6 +88,20 @@ def test_listar_projetos_agrupa_e_inclui_schedule_e_snapshots(auth_client, tmp_p
     assert projetos["mecanicapro"]["job_ativo"] is None
 
 
+def test_listar_projetos_nome_fora_do_padrao_nao_quebra_listagem(auth_client):
+    metrics_com_nome_estranho = {
+        "containers": [
+            {"name": "algo", "labels": {"com.docker.compose.project": "projeto com espaco"}},
+        ],
+    }
+    with patch("collector.scheduler._last_metrics", metrics_com_nome_estranho):
+        r = auth_client.get("/api/backups/projects")
+
+    assert r.status_code == 200
+    projetos = {p["nome"]: p for p in r.json()["projects"]}
+    assert projetos["projeto com espaco"]["snapshots"] == []
+
+
 def test_listar_projetos_inclui_job_ativo(auth_client, test_db):
     from sqlalchemy.orm import Session
     with Session(test_db.engine) as session:
