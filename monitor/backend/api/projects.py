@@ -2,6 +2,7 @@ import os
 import re
 from fastapi import APIRouter
 from collector.scheduler import get_last_metrics
+from api._project_grouping import agrupar_por_projeto
 
 router = APIRouter()
 
@@ -45,10 +46,7 @@ def list_projects():
     containers = metrics.get("containers", [])
     host_total_mb = (metrics.get("ram") or {}).get("total_mb", 0.0)
 
-    grupos: dict[str, list[dict]] = {}
-    for c in containers:
-        projeto = (c.get("labels") or {}).get("com.docker.compose.project", "(sem projeto)")
-        grupos.setdefault(projeto, []).append(c)
+    grupos = agrupar_por_projeto(containers)
 
     projetos = []
     for nome, membros in grupos.items():
