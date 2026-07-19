@@ -12,6 +12,7 @@ const NAV = [
   { href: '/alertas', label: 'Alertas', icon: '🔔' },
   { href: '/acessos', label: 'Acessos', icon: '🌐' },
   { href: '/seguranca', label: 'Segurança', icon: '🛡️' },
+  { href: '/traefik', label: 'Traefik', icon: '🔀' },
   { href: '/configuracoes', label: 'Configurações', icon: '⚙️' },
   { href: '/minha-conta', label: 'Meus Dados', icon: '👤' },
 ];
