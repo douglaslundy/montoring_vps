@@ -48,7 +48,12 @@ fi
 # (regex ^[a-zA-Z0-9_-]+$), entao a interpolacao direta nas queries abaixo
 # nunca contem aspas nem caracteres especiais de SQL.
 sqlite3_exec() {
-  sqlite3 "$DB_PATH" "PRAGMA busy_timeout=5000; $1"
+  # ".timeout" e um dot-command (nao emite linha de saida), diferente de
+  # "PRAGMA busy_timeout=...", que imprime o valor como se fosse uma linha
+  # de resultado — isso contaminaria toda captura via $(...) neste script
+  # (ex: job_linha, pendente), fazendo o worker interpretar "5000" como
+  # dado real. Descoberto e corrigido durante a revisao final.
+  sqlite3 -cmd ".timeout 5000" "$DB_PATH" "$1"
 }
 
 fazer_snapshot() {
