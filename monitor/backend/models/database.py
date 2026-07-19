@@ -150,6 +150,26 @@ class TraefikActionLog(Base):
     erro = Column(Text, nullable=True)
 
 
+class BackupSchedule(Base):
+    __tablename__ = "backup_schedule"
+    projeto = Column(String, primary_key=True)
+    frequencia = Column(String, nullable=False, default="off")
+    hora = Column(Integer, nullable=False, default=3)
+
+
+class BackupJob(Base):
+    __tablename__ = "backup_job"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    projeto = Column(String, nullable=False)
+    tipo = Column(String, nullable=False)
+    arquivo = Column(String, nullable=True)
+    status = Column(String, nullable=False, default="pending")
+    criado_em = Column(DateTime, nullable=False, default=datetime.utcnow)
+    concluido_em = Column(DateTime, nullable=True)
+    erro = Column(Text, nullable=True)
+    username = Column(String, nullable=False)
+
+
 class AccessLog(Base):
     __tablename__ = "access_log"
     id = Column(Integer, primary_key=True, autoincrement=True)

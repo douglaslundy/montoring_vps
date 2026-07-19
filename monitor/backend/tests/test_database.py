@@ -286,3 +286,28 @@ def test_insert_traefik_action_log(test_db):
     assert fetched.filename == "vps-monitor-teste.yml"
     assert fetched.acao == "create"
     assert fetched.sucesso == 1
+
+
+def test_insert_backup_schedule(test_db):
+    with Session(test_db.engine) as session:
+        session.add(test_db.BackupSchedule(projeto="mecanicapro", frequencia="daily", hora=3))
+        session.commit()
+        fetched = session.get(test_db.BackupSchedule, "mecanicapro")
+    assert fetched.frequencia == "daily"
+    assert fetched.hora == 3
+
+
+def test_insert_backup_job(test_db):
+    from datetime import datetime
+    with Session(test_db.engine) as session:
+        job = test_db.BackupJob(
+            projeto="mecanicapro", tipo="snapshot", status="pending",
+            criado_em=datetime.utcnow(), username="admin",
+        )
+        session.add(job)
+        session.commit()
+        fetched = session.query(test_db.BackupJob).first()
+    assert fetched.projeto == "mecanicapro"
+    assert fetched.tipo == "snapshot"
+    assert fetched.status == "pending"
+    assert fetched.arquivo is None
