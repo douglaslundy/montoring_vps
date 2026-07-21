@@ -340,12 +340,17 @@ async def _evaluate_restart_loop(session: Session, rule: AlertRule, containers: 
         # (a cada ~30s) enquanto o container continua reiniciando, e uma
         # igualdade exata nunca acharia o alerta ja aberto — criaria um novo
         # AlertLog a cada ciclo, ignorando o cooldown_minutos configurado.
+        # Escapa caracteres curinga do LIKE ("_" e "%" sao validos em nomes
+        # de container Docker, mas tem significado especial em SQL LIKE —
+        # sem escapar, um nome como "web_1" casaria erroneamente com um
+        # alerta aberto de um container totalmente diferente, tipo "webX1").
+        nome_escapado = name.replace("\\", "\\\\").replace("_", "\\_").replace("%", "\\%")
         open_log = (
             session.query(AlertLog)
             .filter(
                 AlertLog.rule_id == rule.id,
                 AlertLog.resolved_at.is_(None),
-                AlertLog.mensagem.like(f"Container '{name}' em restart loop%"),
+                AlertLog.mensagem.like(f"Container '{nome_escapado}' em restart loop%", escape="\\"),
             )
             .first()
         )

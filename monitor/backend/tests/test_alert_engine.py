@@ -1,4 +1,5 @@
 import asyncio
+import re
 from datetime import datetime
 import pytest
 from sqlalchemy.orm import Session
@@ -398,6 +399,29 @@ def test_restart_loop_nao_duplica_alerta_entre_ciclos_com_aumentos_diferente(fre
     with Session(fresh_db) as s:
         segundo_log = s.query(AlertLog).filter(AlertLog.metrica == "container_restart_loop").first()
     assert segundo_log.id == primeiro_log_id  # mesmo registro, não um novo
+
+
+def test_restart_loop_nome_com_underscore_nao_casa_com_outro_container(fresh_db):
+    """Container com "_" no nome (valido no Docker) nao pode casar, via LIKE,
+    com o alerta aberto de um container DIFERENTE cujo nome so difere nessa
+    posicao (ex: "web_1" vs "webX1") — "_" e curinga de 1 caractere no LIKE
+    e precisa ser escapado."""
+    from notifications.alert_engine import evaluate
+    add_rule(fresh_db, metrica="container_restart_loop", operador=">=", threshold=3, duracao_minutos=10, cooldown_minutos=30)
+
+    _add_container_metrics(fresh_db, "aaa111", [0, 1, 1, 2, 2, 3, 3, 3, 3, 3])
+    _add_container_metrics(fresh_db, "bbb222", [0, 1, 1, 2, 2, 3, 3, 3, 3, 3])
+    containers = [
+        {"id": "aaa111", "id_full": "aaa111full", "name": "webX1", "status": "running"},
+        {"id": "bbb222", "id_full": "bbb222full", "name": "web_1", "status": "running"},
+    ]
+    asyncio.run(evaluate(make_metrics(), containers))
+
+    with Session(fresh_db) as s:
+        logs = s.query(AlertLog).filter(AlertLog.metrica == "container_restart_loop").all()
+    assert len(logs) == 2  # dois containers distintos, dois alertas distintos
+    nomes_nos_logs = {re.search(r"Container '(.+)' em restart loop", l.mensagem).group(1) for l in logs}
+    assert nomes_nos_logs == {"webX1", "web_1"}
 
 
 from unittest.mock import patch
