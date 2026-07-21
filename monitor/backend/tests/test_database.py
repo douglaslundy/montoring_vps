@@ -20,7 +20,7 @@ def test_wal_mode_ativo(test_db):
 def test_regras_padrao_inseridas(test_db):
     with Session(test_db.engine) as session:
         count = session.query(test_db.AlertRule).count()
-    assert count == 10
+    assert count == 12
 
 def test_insert_metrics_history(test_db):
     from datetime import datetime
@@ -35,6 +35,21 @@ def test_insert_metrics_history(test_db):
         session.commit()
         fetched = session.query(test_db.MetricsHistory).first()
     assert fetched.cpu_percent == 45.2
+
+def test_insert_metrics_history_com_swap(test_db):
+    from datetime import datetime
+    with Session(test_db.engine) as session:
+        record = test_db.MetricsHistory(
+            collected_at=datetime.utcnow(),
+            cpu_percent=10.0, ram_percent=50.0, disk_percent=30.0,
+            swap_used_mb=2048.0, swap_percent=50.0,
+        )
+        session.add(record)
+        session.commit()
+        fetched = session.query(test_db.MetricsHistory).first()
+    assert fetched.swap_percent == 50.0
+    assert fetched.swap_used_mb == 2048.0
+
 
 def test_alert_log_tem_coluna_vps_name(test_db):
     from sqlalchemy import inspect

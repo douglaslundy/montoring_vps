@@ -40,7 +40,7 @@ def test_list_rules_requires_auth(client):
 def test_list_rules_returns_defaults(client):
     r = client.get("/api/alerts/rules", headers=auth(client))
     assert r.status_code == 200
-    assert len(r.json()) == 10
+    assert len(r.json()) == 12
 
 
 def test_create_and_delete_rule(client):

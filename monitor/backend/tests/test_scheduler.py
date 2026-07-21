@@ -9,6 +9,7 @@ async def test_collect_and_store_salva_no_banco(test_db, monkeypatch):
     mock_host = {
         "cpu": {"percent": 25.0, "load": [1.0, 0.8, 0.6], "cores": 4, "model": "Test CPU"},
         "ram": {"total_mb": 8192, "used_mb": 2048, "available_mb": 6144, "percent": 25.0},
+        "swap": {"total_mb": 4096, "used_mb": 1024, "percent": 25.0},
         "disk": {"total_gb": 100.0, "used_gb": 30.0, "available_gb": 70.0, "percent": 30.0, "mountpoint": "/"},
         "net": {"rx_bytes_s": 1024, "tx_bytes_s": 512, "interface": "eth0"},
         "uptime": {"days": 1, "hours": 2, "minutes": 30, "seconds": 95400},
@@ -38,6 +39,8 @@ async def test_collect_and_store_salva_no_banco(test_db, monkeypatch):
         assert row is not None
         assert row.cpu_percent == 25.0
         assert row.temperature_c == 42.5
+        assert row.swap_percent == 25.0
+        assert row.swap_used_mb == 1024.0
         c_row = session.query(ContainerMetrics).first()
         assert c_row is not None
         assert c_row.container_name == "test"

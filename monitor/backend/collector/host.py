@@ -55,6 +55,22 @@ def _read_ram(proc_base):
     }
 
 
+def _read_swap(proc_base):
+    swap = {}
+    keys = {"SwapTotal", "SwapFree"}
+    with open(f"{proc_base}/meminfo") as f:
+        for line in f:
+            parts = line.split()
+            key = parts[0].rstrip(":")
+            if key in keys:
+                swap[key] = int(parts[1])
+    total_mb = swap.get("SwapTotal", 0) / 1024
+    free_mb = swap.get("SwapFree", 0) / 1024
+    used_mb = total_mb - free_mb
+    pct = round(used_mb / total_mb * 100, 1) if total_mb else 0.0
+    return {"total_mb": round(total_mb, 1), "used_mb": round(used_mb, 1), "percent": pct}
+
+
 def _read_disk():
     candidates = ["/", "/var", "/opt", "/home", "/data"]
     best = {"total_gb": 0.0, "used_gb": 0.0, "available_gb": 0.0, "percent": 0.0, "mountpoint": "/"}
@@ -152,6 +168,7 @@ def collect_host_metrics(proc_base=PROC_BASE, sys_base=SYS_BASE):
     return {
         "cpu": {"percent": cpu_percent, "load": load, "cores": cores, "model": model},
         "ram": _read_ram(proc_base),
+        "swap": _read_swap(proc_base),
         "disk": _read_disk(),
         "net": _read_net(proc_base),
         "uptime": _read_uptime(proc_base),

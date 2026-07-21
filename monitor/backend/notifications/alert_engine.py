@@ -88,6 +88,8 @@ def _get_metric_value(metrica: str, metrics: dict, containers: list):
         return metrics.get("ram", {}).get("percent")
     if metrica == "disk_percent":
         return metrics.get("disk", {}).get("percent")
+    if metrica == "swap_percent":
+        return metrics.get("swap", {}).get("percent")
     if metrica == "temperature_c":
         return metrics.get("temperature_c")
     if metrica == "load_1m":

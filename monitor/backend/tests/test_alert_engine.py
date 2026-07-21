@@ -114,6 +114,16 @@ def test_container_stopped_resolves_when_removed(fresh_db):
     assert count_open(fresh_db) == 0
 
 
+def test_swap_alto_cria_alerta(fresh_db):
+    from notifications.alert_engine import evaluate
+    add_rule(fresh_db, threshold=70.0, metrica="swap_percent", operador=">")
+    metrics = make_metrics()
+    metrics["swap"] = {"percent": 85.0}
+    result = asyncio.run(evaluate(metrics, []))
+    assert len(result) == 1
+    assert result[0]["metrica"] == "swap_percent"
+
+
 def test_none_metric_does_not_crash(fresh_db):
     from notifications.alert_engine import evaluate
     add_rule(fresh_db, metrica="temperature_c", operador=">", threshold=75.0)

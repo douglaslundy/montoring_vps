@@ -20,6 +20,8 @@ def proc_dir(tmp_path):
         "MemAvailable:   4096000 kB\n"
         "Buffers:         512000 kB\n"
         "Cached:         1024000 kB\n"
+        "SwapTotal:      4194304 kB\n"
+        "SwapFree:       2097152 kB\n"
     )
     (p / "uptime").write_text("443742.12 1234567.89\n")
     net = p / "net"
@@ -83,6 +85,13 @@ def test_cpu_percent_segunda_leitura(proc_dir, sys_dir):
     result = h.collect_host_metrics(proc_base=proc_dir, sys_base=sys_dir)
     assert result["cpu"]["percent"] is not None
     assert 0 <= result["cpu"]["percent"] <= 100
+
+def test_swap(proc_dir, sys_dir):
+    import collector.host as h
+    result = h.collect_host_metrics(proc_base=proc_dir, sys_base=sys_dir)
+    assert result["swap"]["total_mb"] == pytest.approx(4096.0, abs=1)
+    assert result["swap"]["used_mb"] == pytest.approx(2048.0, abs=1)
+    assert result["swap"]["percent"] == pytest.approx(50.0, abs=1)
 
 def test_disk(proc_dir, sys_dir):
     import collector.host as h

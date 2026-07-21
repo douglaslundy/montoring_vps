@@ -31,6 +31,8 @@ class MetricsHistory(Base):
     ram_total_mb = Column(Float)
     ram_used_mb = Column(Float)
     ram_percent = Column(Float)
+    swap_used_mb = Column(Float)
+    swap_percent = Column(Float)
     disk_used_gb = Column(Float)
     disk_total_gb = Column(Float)
     disk_percent = Column(Float)
@@ -236,6 +238,8 @@ _DEFAULT_RULES = [
     {"nome": "CPU Crítica", "metrica": "cpu_percent", "operador": ">", "threshold": 95, "duracao_minutos": 2, "severidade": "critico", "cooldown_minutos": 15},
     {"nome": "RAM Alta", "metrica": "ram_percent", "operador": ">", "threshold": 85, "duracao_minutos": 3, "severidade": "aviso", "cooldown_minutos": 30},
     {"nome": "RAM Crítica", "metrica": "ram_percent", "operador": ">", "threshold": 95, "duracao_minutos": 1, "severidade": "critico", "cooldown_minutos": 15},
+    {"nome": "Swap Alto", "metrica": "swap_percent", "operador": ">", "threshold": 70, "duracao_minutos": 5, "severidade": "aviso", "cooldown_minutos": 30},
+    {"nome": "Swap Crítico", "metrica": "swap_percent", "operador": ">", "threshold": 90, "duracao_minutos": 2, "severidade": "critico", "cooldown_minutos": 15},
     {"nome": "Disco Alto", "metrica": "disk_percent", "operador": ">", "threshold": 80, "duracao_minutos": 0, "severidade": "aviso", "cooldown_minutos": 120},
     {"nome": "Disco Crítico", "metrica": "disk_percent", "operador": ">", "threshold": 90, "duracao_minutos": 0, "severidade": "critico", "cooldown_minutos": 60},
     {"nome": "Temperatura Alta", "metrica": "temperature_c", "operador": ">", "threshold": 75, "duracao_minutos": 5, "severidade": "aviso", "cooldown_minutos": 30},
@@ -278,6 +282,16 @@ def init_db():
             conn.commit()
         except Exception:
             pass  # Coluna já existe
+        try:
+            conn.execute(text("ALTER TABLE metrics_history ADD COLUMN swap_used_mb FLOAT"))
+            conn.commit()
+        except Exception:
+            pass  # Coluna já existe
+        try:
+            conn.execute(text("ALTER TABLE metrics_history ADD COLUMN swap_percent FLOAT"))
+            conn.commit()
+        except Exception:
+            pass  # Coluna já existe
     with Session(engine) as session:
         if session.query(AlertRule).count() == 0:
             for rule in _DEFAULT_RULES:
@@ -287,6 +301,16 @@ def init_db():
                 nome="Espaço em Disco Reaproveitável", metrica="docker_reclaimable_mb",
                 operador=">", threshold=500, duracao_minutos=0,
                 severidade="aviso", cooldown_minutos=1440,
+            ))
+        if not session.query(AlertRule).filter_by(nome="Swap Alto").first():
+            session.add(AlertRule(
+                nome="Swap Alto", metrica="swap_percent", operador=">", threshold=70,
+                duracao_minutos=5, severidade="aviso", cooldown_minutos=30,
+            ))
+        if not session.query(AlertRule).filter_by(nome="Swap Crítico").first():
+            session.add(AlertRule(
+                nome="Swap Crítico", metrica="swap_percent", operador=">", threshold=90,
+                duracao_minutos=2, severidade="critico", cooldown_minutos=15,
             ))
         for key, value in _DEFAULT_CONFIG.items():
             if not session.get(Config, key):
