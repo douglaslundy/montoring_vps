@@ -24,7 +24,7 @@
 - Modify: `backend/collector/host.py`
 - Modify: `backend/models/database.py`
 - Modify: `backend/collector/scheduler.py`
-- Test: `backend/tests/test_host_collector.py`, `backend/tests/test_database.py`, `backend/tests/test_scheduler.py`, `backend/tests/test_alert_engine.py`
+- Test: `backend/tests/test_host_collector.py`, `backend/tests/test_database.py`, `backend/tests/test_scheduler.py`, `backend/tests/test_alert_engine.py`, `backend/tests/test_alerts_api.py`
 
 **Interfaces:**
 - Produces: `_read_swap(proc_base) -> dict` (`{"total_mb", "used_mb", "percent"}`), incluído em `collect_host_metrics()` como chave `"swap"`. `MetricsHistory.swap_used_mb`/`swap_percent` (Float). `_get_metric_value("swap_percent", ...)`. Duas novas `AlertRule`: `"Swap Alto"` (aviso, 70%), `"Swap Crítico"` (crítico, 90%).
@@ -183,14 +183,16 @@ Ainda em `init_db()`, logo depois do bloco que insere `_DEFAULT_RULES` (dentro d
             ))
 ```
 
-- [ ] **Step 8: Atualizar o teste de contagem de regras padrão**
+- [ ] **Step 8: Atualizar os testes de contagem de regras padrão**
 
-Em `backend/tests/test_database.py`, `test_regras_padrao_inseridas` hoje espera `count == 10`. Mudar pra `count == 12` (10 + `Swap Alto` + `Swap Crítico`).
+Existem **2 lugares** que fixam a contagem de regras padrão (achado durante a execução desta task, rodando a suíte completa — o primeiro já era esperado pela spec, o segundo não):
+- `backend/tests/test_database.py`, `test_regras_padrao_inseridas`: hoje espera `count == 10`. Mudar pra `count == 12` (10 + `Swap Alto` + `Swap Crítico`).
+- `backend/tests/test_alerts_api.py`, `test_list_rules_returns_defaults` (linha ~43): hoje espera `assert len(r.json()) == 10`. Mudar pra `== 12`.
 
 - [ ] **Step 9: Rodar e confirmar que passa**
 
-Run: `cd backend && py -m pytest tests/test_database.py -v`
-Expected: PASS (todos, incluindo `test_insert_metrics_history_com_swap` e `test_regras_padrao_inseridas` com o novo total)
+Run: `cd backend && py -m pytest tests/test_database.py tests/test_alerts_api.py -v`
+Expected: PASS (todos, incluindo `test_insert_metrics_history_com_swap`, `test_regras_padrao_inseridas` e `test_list_rules_returns_defaults` com o novo total)
 
 - [ ] **Step 10: Extender `_get_metric_value` e testar**
 
@@ -268,7 +270,7 @@ Expected: todos os testes passando, sem `FAILED`.
 - [ ] **Step 15: Commit**
 
 ```bash
-git add backend/collector/host.py backend/models/database.py backend/collector/scheduler.py backend/tests/test_host_collector.py backend/tests/test_database.py backend/tests/test_scheduler.py backend/tests/test_alert_engine.py
+git add backend/collector/host.py backend/models/database.py backend/collector/scheduler.py backend/tests/test_host_collector.py backend/tests/test_database.py backend/tests/test_scheduler.py backend/tests/test_alert_engine.py backend/tests/test_alerts_api.py
 git commit -m "feat: adiciona monitoramento de swap com alertas Alto/Critico"
 ```
 
@@ -279,7 +281,7 @@ git commit -m "feat: adiciona monitoramento de swap com alertas Alto/Critico"
 **Files:**
 - Modify: `backend/models/database.py`
 - Modify: `backend/notifications/alert_engine.py`
-- Test: `backend/tests/test_database.py`, `backend/tests/test_alert_engine.py`
+- Test: `backend/tests/test_database.py`, `backend/tests/test_alert_engine.py`, `backend/tests/test_alerts_api.py`
 
 **Interfaces:**
 - Consumes: `ContainerMetrics` (já existente, populado pelo `scheduler.py` a cada 30s).
@@ -303,12 +305,14 @@ Em `init_db()`, no mesmo bloco de `if not session.query(AlertRule).filter_by(nom
             ))
 ```
 
-Em `backend/tests/test_database.py`, `test_regras_padrao_inseridas` (já em 12 após a Task 1): mudar pra `count == 13`.
+Mesmo tratamento da Task 1 (2 lugares fixam a contagem):
+- `backend/tests/test_database.py`, `test_regras_padrao_inseridas` (já em 12 após a Task 1): mudar pra `count == 13`.
+- `backend/tests/test_alerts_api.py`, `test_list_rules_returns_defaults` (já em 12 após a Task 1): mudar pra `== 13`.
 
 - [ ] **Step 2: Rodar e confirmar que passa**
 
-Run: `cd backend && py -m pytest tests/test_database.py -v -k regras_padrao`
-Expected: PASS (13)
+Run: `cd backend && py -m pytest tests/test_database.py tests/test_alerts_api.py -v -k "regras_padrao or list_rules_returns_defaults"`
+Expected: PASS (13 em ambos)
 
 - [ ] **Step 3: Escrever os testes de `_evaluate_restart_loop` (devem falhar)**
 
@@ -511,7 +515,7 @@ Expected: todos os testes passando, sem `FAILED`.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add backend/models/database.py backend/notifications/alert_engine.py backend/tests/test_database.py backend/tests/test_alert_engine.py
+git add backend/models/database.py backend/notifications/alert_engine.py backend/tests/test_database.py backend/tests/test_alert_engine.py backend/tests/test_alerts_api.py
 git commit -m "feat: adiciona alerta de restart loop de container com sinalizacao de OOM"
 ```
 
