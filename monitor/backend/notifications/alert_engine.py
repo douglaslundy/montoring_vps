@@ -37,6 +37,16 @@ def _top_by_rede(containers: list, n: int = 3) -> list:
     ]
 
 
+def _top_projetos(containers: list, key: str, n: int = 3) -> list:
+    from api._project_grouping import agrupar_por_projeto
+    grupos = agrupar_por_projeto(containers)
+    somas = [
+        {"nome": nome, "valor": round(sum(c.get(key, 0) or 0 for c in membros), 1)}
+        for nome, membros in grupos.items() if nome != "(sem projeto)"
+    ]
+    return sorted(somas, key=lambda p: p["valor"], reverse=True)[:n]
+
+
 def _top_disco(session: Session, n: int = 3) -> list:
     latest = (
         session.query(ContainerDiskUsage.collected_at)
@@ -60,19 +70,25 @@ def _build_metric_context(metrica: str, containers: list, session: Session) -> O
         ctx = {}
         top_cpu = _top_by(containers, "cpu_percent")
         top_rede = _top_by_rede(containers)
+        top_projetos = _top_projetos(containers, "cpu_percent")
         if top_cpu:
             ctx["top_cpu"] = top_cpu
         if top_rede:
             ctx["top_rede"] = top_rede
+        if top_projetos:
+            ctx["top_projetos"] = top_projetos
         return ctx or None
     if metrica == "ram_percent":
         ctx = {}
         top_mem = _top_by(containers, "mem_percent")
         top_rede = _top_by_rede(containers)
+        top_projetos = _top_projetos(containers, "mem_percent")
         if top_mem:
             ctx["top_mem"] = top_mem
         if top_rede:
             ctx["top_rede"] = top_rede
+        if top_projetos:
+            ctx["top_projetos"] = top_projetos
         return ctx or None
     if metrica == "disk_percent":
         top_disco = _top_disco(session)

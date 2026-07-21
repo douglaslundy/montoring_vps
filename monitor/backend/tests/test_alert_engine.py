@@ -570,3 +570,35 @@ def test_evaluate_rule_usa_extra_context_quando_fornecido(fresh_db):
     assert log is not None
     contexto = json.loads(log.contexto)
     assert contexto["imagens_orfas"][0]["repo_tag"] == "old:latest"
+
+
+def test_top_projetos_agrupa_soma_e_ordena():
+    from notifications.alert_engine import _top_projetos
+    containers = [
+        {"name": "mecanicapro-backend-1", "cpu_percent": 30.0, "labels": {"com.docker.compose.project": "mecanicapro"}},
+        {"name": "mecanicapro-worker-1", "cpu_percent": 20.0, "labels": {"com.docker.compose.project": "mecanicapro"}},
+        {"name": "corridas-app", "cpu_percent": 15.0, "labels": {"com.docker.compose.project": "corridas"}},
+        {"name": "orfao", "cpu_percent": 5.0, "labels": {}},
+    ]
+    resultado = _top_projetos(containers, "cpu_percent")
+    assert resultado[0]["nome"] == "mecanicapro"
+    assert resultado[0]["valor"] == 50.0
+    assert resultado[1]["nome"] == "corridas"
+    assert resultado[1]["valor"] == 15.0
+    assert all(p["nome"] != "(sem projeto)" for p in resultado)
+
+
+def test_cpu_alert_grava_contexto_top_projetos(fresh_db):
+    from notifications.alert_engine import evaluate
+    add_rule(fresh_db, threshold=80.0, metrica="cpu_percent", operador=">")
+    containers = [
+        {"name": "mecanicapro-backend-1", "cpu_percent": 70.0, "mem_percent": 0.0,
+         "labels": {"com.docker.compose.project": "mecanicapro"}, "net_rx_mb": 0.0, "net_tx_mb": 0.0},
+        {"name": "corridas-app", "cpu_percent": 10.0, "mem_percent": 0.0,
+         "labels": {"com.docker.compose.project": "corridas"}, "net_rx_mb": 0.0, "net_tx_mb": 0.0},
+    ]
+    asyncio.run(evaluate(make_metrics(cpu=90.0), containers))
+    with Session(fresh_db) as s:
+        log = s.query(AlertLog).filter(AlertLog.resolved_at.is_(None)).first()
+    ctx = json.loads(log.contexto)
+    assert ctx["top_projetos"][0]["nome"] == "mecanicapro"
