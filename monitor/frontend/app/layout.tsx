@@ -14,6 +14,7 @@ const NAV = [
   { href: '/seguranca', label: 'Segurança', icon: '🛡️' },
   { href: '/traefik', label: 'Traefik', icon: '🔀' },
   { href: '/backups', label: 'Backups', icon: '💾' },
+  { href: '/firewall', label: 'Firewall', icon: '🛡️' },
   { href: '/configuracoes', label: 'Configurações', icon: '⚙️' },
   { href: '/minha-conta', label: 'Meus Dados', icon: '👤' },
 ];
