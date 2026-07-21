@@ -109,7 +109,7 @@ for linha in sys.stdin:
         "protegida": porta in PORTAS_PROTEGIDAS,
     })
 
-print(json.dumps({"regras": regulas}))
+print(json.dumps({"regras": regras}))
 ' > "${FIREWALL_STATE_FILE}.tmp" && mv "${FIREWALL_STATE_FILE}.tmp" "$FIREWALL_STATE_FILE"
 }
 
