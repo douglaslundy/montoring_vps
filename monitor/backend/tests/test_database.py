@@ -326,3 +326,20 @@ def test_insert_backup_job(test_db):
     assert fetched.tipo == "snapshot"
     assert fetched.status == "pending"
     assert fetched.arquivo is None
+
+
+def test_insert_firewall_rule_request(test_db):
+    from datetime import datetime
+    with Session(test_db.engine) as session:
+        req = test_db.FirewallRuleRequest(
+            acao="add", permitir=1, porta=8081, protocolo="tcp",
+            origem_ip=None, status="pending", criado_em=datetime.utcnow(),
+            username="admin",
+        )
+        session.add(req)
+        session.commit()
+        fetched = session.query(test_db.FirewallRuleRequest).first()
+    assert fetched.acao == "add"
+    assert fetched.porta == 8081
+    assert fetched.status == "pending"
+    assert fetched.origem_ip is None
