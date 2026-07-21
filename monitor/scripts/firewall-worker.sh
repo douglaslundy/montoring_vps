@@ -24,7 +24,8 @@
 set -uo pipefail
 
 DB_PATH="/var/lib/docker/volumes/vps-monitor_vps_monitor_data/_data/monitor.db"
-FIREWALL_STATE_FILE="/opt/vps-monitor-firewall-state.json"
+FIREWALL_STATE_FILE="/opt/vps-monitor-firewall/state.json"
+mkdir -p "$(dirname "$FIREWALL_STATE_FILE")"
 PORTAS_PROTEGIDAS="22 80 443"
 LOCK_FILE="/var/lock/firewall-worker.lock"
 

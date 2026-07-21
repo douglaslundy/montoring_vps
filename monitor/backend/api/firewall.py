@@ -11,7 +11,7 @@ import models.database as db_module
 from api.auth import get_token_data, verify_token_header
 from models.database import FirewallRuleRequest
 
-FIREWALL_STATE_FILE = os.environ.get("FIREWALL_STATE_FILE", "/opt/vps-monitor-firewall-state.json")
+FIREWALL_STATE_FILE = os.environ.get("FIREWALL_STATE_FILE", "/opt/vps-monitor-firewall/state.json")
 PORTAS_PROTEGIDAS = {22, 80, 443}
 _PROTOCOLOS_VALIDOS = {"tcp", "udp"}
 _ACOES_VALIDAS = {"add", "remove"}

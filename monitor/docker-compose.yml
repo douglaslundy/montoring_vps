@@ -42,7 +42,7 @@ services:
       - /var/run/fail2ban/fail2ban.sock:/var/run/fail2ban/fail2ban.sock
       - /opt/traefik/dynamic:/opt/traefik/dynamic:rw
       - /opt/vps-monitor-backups:/opt/vps-monitor-backups:ro
-      - /opt/vps-monitor-firewall-state.json:/opt/vps-monitor-firewall-state.json:ro
+      - /opt/vps-monitor-firewall:/opt/vps-monitor-firewall:ro
     networks:
       - vps_monitor_net
     restart: unless-stopped
