@@ -550,6 +550,22 @@ def test_container_parado_notifica_resolucao(fresh_db):
     mock_res.assert_called_once()
 
 
+def test_container_parado_nao_renotifica_enquanto_continua_parado(fresh_db):
+    """Bug reportado pelo usuário em produção: com cooldown_minutos=0 (default
+    da regra "Container Parado"), o alerta reenviava notificação a cada ciclo
+    do evaluate() (a cada ~30s na produção) enquanto o container continuava
+    parado, em vez de notificar só uma vez na queda e uma vez na resolução."""
+    from notifications.alert_engine import evaluate
+    enable_channels(fresh_db)
+    add_rule(fresh_db, metrica="container_stopped", operador="==", threshold=1,
+             cooldown_minutos=0, canal_whatsapp=1, canal_email=0)
+    with patch("notifications.whatsapp_service.send_alert") as mock_send:
+        asyncio.run(evaluate(make_metrics(), [{"name": "nginx", "status": "exited"}]))
+        asyncio.run(evaluate(make_metrics(), [{"name": "nginx", "status": "exited"}]))
+        asyncio.run(evaluate(make_metrics(), [{"name": "nginx", "status": "exited"}]))
+    assert mock_send.call_count == 1
+
+
 def test_evaluate_rule_usa_extra_context_quando_fornecido(fresh_db):
     from notifications.alert_engine import _evaluate_rule
     from sqlalchemy.orm import Session

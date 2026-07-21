@@ -291,11 +291,13 @@ async def _evaluate_container_stopped(session: Session, rule: AlertRule, contain
         duration_ok = rule.duracao_minutos == 0 or (
             (now - open_log.triggered_at).total_seconds() / 60 >= rule.duracao_minutos
         )
-        cooldown_ok = (
-            open_log.last_notified_at is None or
-            (now - open_log.last_notified_at).total_seconds() / 60 >= rule.cooldown_minutos
-        )
-        if duration_ok and cooldown_ok:
+        # Notifica só uma vez, na queda — não é um lembrete periódico "ainda
+        # parado" (cooldown_minutos não se aplica aqui). Com cooldown_minutos=0
+        # (default desta regra) e o scheduler rodando a cada ~30s, comparar
+        # contra cooldown a cada ciclo reenviava notificação sem parar
+        # enquanto o container continuasse parado; a notificação de
+        # resolução (abaixo) já cobre "voltou a funcionar".
+        if duration_ok and open_log.last_notified_at is None:
             _notify_alert(session, open_log, rule, now)
 
     # Resolve containers que voltaram a running OU que foram removidos
