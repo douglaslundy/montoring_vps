@@ -187,6 +187,20 @@ class FirewallRuleRequest(Base):
     username = Column(String, nullable=False)
 
 
+class ProjectDeleteRequest(Base):
+    __tablename__ = "project_delete_request"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    projeto = Column(String, nullable=False)
+    rotas_traefik_selecionadas = Column(Text, nullable=False)
+    regras_firewall_selecionadas = Column(Text, nullable=False)
+    snapshot_arquivo = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="pending")
+    criado_em = Column(DateTime, nullable=False, default=datetime.utcnow)
+    concluido_em = Column(DateTime, nullable=True)
+    erro = Column(Text, nullable=True)
+    username = Column(String, nullable=False)
+
+
 class AccessLog(Base):
     __tablename__ = "access_log"
     id = Column(Integer, primary_key=True, autoincrement=True)

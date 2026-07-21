@@ -343,3 +343,22 @@ def test_insert_firewall_rule_request(test_db):
     assert fetched.porta == 8081
     assert fetched.status == "pending"
     assert fetched.origem_ip is None
+
+
+def test_insert_project_delete_request(test_db):
+    from datetime import datetime
+    with Session(test_db.engine) as session:
+        req = test_db.ProjectDeleteRequest(
+            projeto="mecanicapro",
+            rotas_traefik_selecionadas='["vps-monitor-mecanicapro.yml"]',
+            regras_firewall_selecionadas='[{"porta": 8081, "protocolo": "tcp", "permitir": true, "origem_ip": null}]',
+            snapshot_arquivo="20260721T140000Z.tar.gz",
+            status="pending", criado_em=datetime.utcnow(), username="admin",
+        )
+        session.add(req)
+        session.commit()
+        fetched = session.query(test_db.ProjectDeleteRequest).first()
+    assert fetched.projeto == "mecanicapro"
+    assert fetched.snapshot_arquivo == "20260721T140000Z.tar.gz"
+    assert fetched.status == "pending"
+    assert "vps-monitor-mecanicapro.yml" in fetched.rotas_traefik_selecionadas
