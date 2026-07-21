@@ -245,6 +245,7 @@ _DEFAULT_RULES = [
     {"nome": "Temperatura Alta", "metrica": "temperature_c", "operador": ">", "threshold": 75, "duracao_minutos": 5, "severidade": "aviso", "cooldown_minutos": 30},
     {"nome": "Load Alto", "metrica": "load_1m", "operador": ">", "threshold": 6.0, "duracao_minutos": 5, "severidade": "aviso", "cooldown_minutos": 30},
     {"nome": "Container Parado", "metrica": "container_stopped", "operador": "==", "threshold": 1, "duracao_minutos": 0, "severidade": "critico", "cooldown_minutos": 0},
+    {"nome": "Container em Restart Loop", "metrica": "container_restart_loop", "operador": ">=", "threshold": 3, "duracao_minutos": 10, "severidade": "critico", "cooldown_minutos": 30},
     {"nome": "Espaço em Disco Reaproveitável", "metrica": "docker_reclaimable_mb", "operador": ">", "threshold": 500, "duracao_minutos": 0, "severidade": "aviso", "cooldown_minutos": 1440},
 ]
 
@@ -311,6 +312,11 @@ def init_db():
             session.add(AlertRule(
                 nome="Swap Crítico", metrica="swap_percent", operador=">", threshold=90,
                 duracao_minutos=2, severidade="critico", cooldown_minutos=15,
+            ))
+        if not session.query(AlertRule).filter_by(nome="Container em Restart Loop").first():
+            session.add(AlertRule(
+                nome="Container em Restart Loop", metrica="container_restart_loop", operador=">=",
+                threshold=3, duracao_minutos=10, severidade="critico", cooldown_minutos=30,
             ))
         for key, value in _DEFAULT_CONFIG.items():
             if not session.get(Config, key):

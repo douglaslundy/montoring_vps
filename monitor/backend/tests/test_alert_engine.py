@@ -297,6 +297,82 @@ def test_container_stopped_inspect_falha_nao_impede_alerta(fresh_db):
     assert log.contexto is None
 
 
+def _add_container_metrics(engine, container_id, restart_counts, minutos_atras_inicial=9):
+    """Insere uma série de ContainerMetrics simulando o histórico de restart_count
+    nos últimos `minutos_atras_inicial` minutos (1 ponto por minuto, mais recente por último)."""
+    from datetime import timedelta
+    from models.database import ContainerMetrics
+    now = datetime.utcnow()
+    with Session(engine) as s:
+        for i, rc in enumerate(restart_counts):
+            minutos_atras = minutos_atras_inicial - i
+            s.add(ContainerMetrics(
+                collected_at=now - timedelta(minutes=minutos_atras),
+                container_id=container_id, container_name="worker",
+                restart_count=rc, status="running",
+            ))
+        s.commit()
+
+
+def test_restart_loop_dispara_com_3_aumentos_em_10min(fresh_db):
+    from notifications.alert_engine import evaluate
+    add_rule(fresh_db, metrica="container_restart_loop", operador=">=", threshold=3, duracao_minutos=10, cooldown_minutos=30)
+    _add_container_metrics(fresh_db, "abc123", [0, 1, 1, 2, 2, 3, 3, 3, 3, 3])
+    containers = [{"id": "abc123", "id_full": "abc123fullid", "name": "worker", "status": "running"}]
+    result = asyncio.run(evaluate(make_metrics(), containers))
+    assert any("worker" in r["mensagem"] and "restart loop" in r["mensagem"] for r in result)
+
+
+def test_restart_loop_nao_dispara_abaixo_do_threshold(fresh_db):
+    from notifications.alert_engine import evaluate
+    add_rule(fresh_db, metrica="container_restart_loop", operador=">=", threshold=3, duracao_minutos=10, cooldown_minutos=30)
+    _add_container_metrics(fresh_db, "abc123", [0, 0, 0, 1, 1, 1, 1, 1, 1, 1])
+    containers = [{"id": "abc123", "id_full": "abc123fullid", "name": "worker", "status": "running"}]
+    result = asyncio.run(evaluate(make_metrics(), containers))
+    assert result == []
+
+
+def test_restart_loop_contexto_sinaliza_oom(fresh_db):
+    from unittest.mock import AsyncMock
+    from notifications.alert_engine import evaluate
+    add_rule(fresh_db, metrica="container_restart_loop", operador=">=", threshold=3, duracao_minutos=10, cooldown_minutos=30)
+    _add_container_metrics(fresh_db, "abc123", [0, 1, 1, 2, 2, 3, 3, 3, 3, 3])
+    containers = [{"id": "abc123", "id_full": "abc123fullid", "name": "worker", "status": "running"}]
+
+    mock_dc = AsyncMock()
+    mock_dc.container_inspect = AsyncMock(return_value={"State": {"OOMKilled": True}})
+    asyncio.run(evaluate(make_metrics(), containers, mock_dc))
+
+    with Session(fresh_db) as s:
+        log = s.query(AlertLog).filter(AlertLog.metrica == "container_restart_loop").first()
+    ctx = json.loads(log.contexto)
+    assert ctx["oom_killed"] is True
+    mock_dc.container_inspect.assert_awaited_once_with("abc123fullid")
+
+
+def test_restart_loop_resolve_quando_para_de_reiniciar(fresh_db):
+    from notifications.alert_engine import evaluate
+    from models.database import ContainerMetrics
+    add_rule(fresh_db, metrica="container_restart_loop", operador=">=", threshold=3, duracao_minutos=10, cooldown_minutos=30)
+    _add_container_metrics(fresh_db, "abc123", [0, 1, 1, 2, 2, 3, 3, 3, 3, 3])
+    containers = [{"id": "abc123", "id_full": "abc123fullid", "name": "worker", "status": "running"}]
+    asyncio.run(evaluate(make_metrics(), containers))
+    assert count_open(fresh_db) == 1
+
+    # Simula a janela de 10min avançando (equivalente ao que aconteceria de
+    # verdade com o tempo passando entre execuções do scheduler): remove os
+    # pontos antigos (que tinham os aumentos) e insere só histórico estável.
+    # Sem isso, os pontos antigos continuariam dentro da janela de 10min
+    # (o teste roda em milissegundos, não passa tempo real de verdade) e o
+    # alerta nunca resolveria.
+    with Session(fresh_db) as s:
+        s.query(ContainerMetrics).filter(ContainerMetrics.container_id == "abc123").delete()
+        s.commit()
+    _add_container_metrics(fresh_db, "abc123", [3] * 10)
+    asyncio.run(evaluate(make_metrics(), containers))
+    assert count_open(fresh_db) == 0
+
+
 from unittest.mock import patch
 
 

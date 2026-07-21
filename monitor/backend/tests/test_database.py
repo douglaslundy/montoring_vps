@@ -20,7 +20,7 @@ def test_wal_mode_ativo(test_db):
 def test_regras_padrao_inseridas(test_db):
     with Session(test_db.engine) as session:
         count = session.query(test_db.AlertRule).count()
-    assert count == 12
+    assert count == 13
 
 def test_insert_metrics_history(test_db):
     from datetime import datetime

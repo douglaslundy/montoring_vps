@@ -1,12 +1,12 @@
 import json
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from models.database import AlertLog, AlertNotification, AlertRule, ContainerDiskUsage, engine
+from models.database import AlertLog, AlertNotification, AlertRule, ContainerDiskUsage, ContainerMetrics, engine
 
 logger = logging.getLogger(__name__)
 
@@ -302,6 +302,83 @@ async def _evaluate_container_stopped(session: Session, rule: AlertRule, contain
             _notify_resolution(session, log, rule)
 
 
+async def _evaluate_restart_loop(session: Session, rule: AlertRule, containers: list, now: datetime, vps_name: str, docker_client=None):
+    """Avalia regra especial de restart loop — uma instância por container."""
+    janela_inicio = now - timedelta(minutes=rule.duracao_minutos)
+    containers_em_loop = set()
+
+    for c in containers:
+        # ContainerMetrics.container_id grava o ID curto (c["id"]), não o
+        # id_full usado pra inspecionar via API do Docker — os dois campos
+        # têm valores diferentes, usar o errado faz a consulta não achar nada.
+        container_id = c.get("id")
+        id_full = c.get("id_full") or container_id
+        name = c.get("name", "unknown")
+        if not container_id:
+            continue
+
+        contagens = (
+            session.query(ContainerMetrics.restart_count)
+            .filter(
+                ContainerMetrics.container_id == container_id,
+                ContainerMetrics.collected_at >= janela_inicio,
+            )
+            .order_by(ContainerMetrics.collected_at)
+            .all()
+        )
+        valores = [r[0] for r in contagens if r[0] is not None]
+        if len(valores) < 2:
+            continue
+        aumentos = sum(1 for i in range(1, len(valores)) if valores[i] > valores[i - 1])
+        if aumentos < rule.threshold:
+            continue
+
+        containers_em_loop.add(name)
+        mensagem = f"Container '{name}' em restart loop ({aumentos} reinícios em {rule.duracao_minutos}min)"
+        open_log = (
+            session.query(AlertLog)
+            .filter(AlertLog.rule_id == rule.id, AlertLog.resolved_at.is_(None), AlertLog.mensagem == mensagem)
+            .first()
+        )
+        if open_log is None:
+            contexto = {"reinicios": aumentos, "janela_minutos": rule.duracao_minutos}
+            if docker_client is not None:
+                try:
+                    inspect = await docker_client.container_inspect(id_full)
+                    contexto["oom_killed"] = inspect.get("State", {}).get("OOMKilled")
+                except Exception:
+                    logger.exception("Erro ao inspecionar container em restart loop %s", name)
+
+            open_log = AlertLog(
+                rule_id=rule.id, triggered_at=now, severidade=rule.severidade,
+                metrica="container_restart_loop", valor_no_disparo=aumentos, threshold=rule.threshold,
+                mensagem=mensagem, vps_name=vps_name, contexto=json.dumps(contexto),
+            )
+            session.add(open_log)
+            session.flush()
+
+        cooldown_ok = (
+            open_log.last_notified_at is None or
+            (now - open_log.last_notified_at).total_seconds() / 60 >= rule.cooldown_minutos
+        )
+        if cooldown_ok:
+            _notify_alert(session, open_log, rule, now)
+
+    # Resolve alertas de containers que pararam de reiniciar nesta janela
+    open_logs = (
+        session.query(AlertLog)
+        .filter(AlertLog.rule_id == rule.id, AlertLog.resolved_at.is_(None))
+        .all()
+    )
+    for log in open_logs:
+        m = re.search(r"Container '(.+)' em restart loop", log.mensagem or "")
+        if not m:
+            continue
+        if m.group(1) not in containers_em_loop:
+            log.resolved_at = now
+            _notify_resolution(session, log, rule)
+
+
 async def evaluate(metrics: dict, containers: list, docker_client=None) -> list:
     """Avalia todas as regras ativas e retorna lista de alertas ativos."""
     now = datetime.utcnow()
@@ -316,6 +393,8 @@ async def evaluate(metrics: dict, containers: list, docker_client=None) -> list:
                 try:
                     if rule.metrica == "container_stopped":
                         await _evaluate_container_stopped(session, rule, containers, now, vps_name, docker_client)
+                    elif rule.metrica == "container_restart_loop":
+                        await _evaluate_restart_loop(session, rule, containers, now, vps_name, docker_client)
                     else:
                         value = _get_metric_value(rule.metrica, metrics, containers)
                         if value is None:
