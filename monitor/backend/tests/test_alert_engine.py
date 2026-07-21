@@ -373,6 +373,33 @@ def test_restart_loop_resolve_quando_para_de_reiniciar(fresh_db):
     assert count_open(fresh_db) == 0
 
 
+def test_restart_loop_nao_duplica_alerta_entre_ciclos_com_aumentos_diferente(fresh_db):
+    """Contêiner continua em loop entre execuções do evaluate() (aumentos muda
+    de valor a cada ciclo) — não pode gerar um segundo AlertLog nem ignorar
+    o cooldown configurado."""
+    from notifications.alert_engine import evaluate
+    add_rule(fresh_db, metrica="container_restart_loop", operador=">=", threshold=3, duracao_minutos=10, cooldown_minutos=30)
+    _add_container_metrics(fresh_db, "abc123", [0, 1, 1, 2, 2, 3, 3, 3, 3, 3])
+    containers = [{"id": "abc123", "id_full": "abc123fullid", "name": "worker", "status": "running"}]
+    asyncio.run(evaluate(make_metrics(), containers))
+    assert count_open(fresh_db) == 1
+
+    with Session(fresh_db) as s:
+        primeiro_log_id = s.query(AlertLog).filter(AlertLog.metrica == "container_restart_loop").first().id
+
+    # Container continua reiniciando no ciclo seguinte — mais pontos no
+    # histórico, "aumentos" recalculado tende a ser diferente do ciclo
+    # anterior (não faz sentido em produção o valor ficar estático enquanto
+    # o container continua reiniciando de verdade).
+    _add_container_metrics(fresh_db, "abc123", [3, 4, 4, 5, 5, 5, 5, 5, 5, 5])
+    asyncio.run(evaluate(make_metrics(), containers))
+
+    assert count_open(fresh_db) == 1
+    with Session(fresh_db) as s:
+        segundo_log = s.query(AlertLog).filter(AlertLog.metrica == "container_restart_loop").first()
+    assert segundo_log.id == primeiro_log_id  # mesmo registro, não um novo
+
+
 from unittest.mock import patch
 
 

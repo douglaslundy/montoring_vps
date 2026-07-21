@@ -335,11 +335,22 @@ async def _evaluate_restart_loop(session: Session, rule: AlertRule, containers: 
 
         containers_em_loop.add(name)
         mensagem = f"Container '{name}' em restart loop ({aumentos} reinícios em {rule.duracao_minutos}min)"
+        # Busca por prefixo (nome do container), nao por igualdade exata da
+        # mensagem inteira: "aumentos" muda a cada execucao do evaluate()
+        # (a cada ~30s) enquanto o container continua reiniciando, e uma
+        # igualdade exata nunca acharia o alerta ja aberto — criaria um novo
+        # AlertLog a cada ciclo, ignorando o cooldown_minutos configurado.
         open_log = (
             session.query(AlertLog)
-            .filter(AlertLog.rule_id == rule.id, AlertLog.resolved_at.is_(None), AlertLog.mensagem == mensagem)
+            .filter(
+                AlertLog.rule_id == rule.id,
+                AlertLog.resolved_at.is_(None),
+                AlertLog.mensagem.like(f"Container '{name}' em restart loop%"),
+            )
             .first()
         )
+        if open_log is not None:
+            open_log.mensagem = mensagem  # mantem a contagem de reinicios atualizada na tela
         if open_log is None:
             contexto = {"reinicios": aumentos, "janela_minutos": rule.duracao_minutos}
             if docker_client is not None:
