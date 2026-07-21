@@ -139,6 +139,12 @@ export default function DashboardPage() {
           percent={effectiveData?.disk?.percent}
         />
         <MetricCard
+          title="Swap"
+          value={`${effectiveData?.swap?.percent?.toFixed(1) ?? '—'}%`}
+          subtitle={effectiveData ? `${(effectiveData.swap.used_mb / 1024).toFixed(1)} GB / ${(effectiveData.swap.total_mb / 1024).toFixed(1)} GB` : undefined}
+          percent={effectiveData?.swap?.percent}
+        />
+        <MetricCard
           title="Uptime"
           value={effectiveData ? `${effectiveData.uptime.days}d ${effectiveData.uptime.hours}h ${effectiveData.uptime.minutes}m` : '—'}
           icon="⏱️"

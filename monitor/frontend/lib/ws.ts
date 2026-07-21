@@ -30,6 +30,7 @@ export interface MetricsPayload {
   ts: string;
   cpu: { percent: number | null; load: number[]; cores: number; model: string };
   ram: { total_mb: number; used_mb: number; available_mb: number; percent: number };
+  swap: { total_mb: number; used_mb: number; percent: number };
   disk: { total_gb: number; used_gb: number; available_gb: number; percent: number; mountpoint?: string };
   net: { rx_bytes_s: number; tx_bytes_s: number; interface: string };
   temperature_c: number | null;
