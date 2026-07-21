@@ -57,6 +57,18 @@ def test_listar_regras_le_snapshot(auth_client, tmp_path):
     assert regras[1]["protegida"] is False
 
 
+def test_listar_regras_degradacao_json_corrompido(auth_client, tmp_path):
+    # Escreve JSON inválido no arquivo de estado
+    caminho = tmp_path / "firewall-state.json"
+    caminho.write_text("{isso nao e json valido", encoding="utf-8")
+
+    # GET /api/firewall/rules deve retornar 200 (não 500), com lista vazia
+    r = auth_client.get("/api/firewall/rules")
+    assert r.status_code == 200
+    assert r.json()["regras"] == []
+    assert r.json()["jobs_pendentes"] == []
+
+
 def test_criar_regra_add_sucesso(auth_client, test_db):
     r = auth_client.post("/api/firewall/rules", json={
         "acao": "add", "permitir": True, "porta": 8081, "protocolo": "tcp", "origem_ip": None,

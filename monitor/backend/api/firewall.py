@@ -58,9 +58,12 @@ def _job_pendente_existe(session: Session, body: RuleIn) -> bool:
 def _ler_estado() -> list[dict]:
     if not os.path.isfile(FIREWALL_STATE_FILE):
         return []
-    with open(FIREWALL_STATE_FILE, encoding="utf-8") as f:
-        estado = json.load(f)
-    return estado.get("regras", [])
+    try:
+        with open(FIREWALL_STATE_FILE, encoding="utf-8") as f:
+            estado = json.load(f)
+        return estado.get("regras", [])
+    except (json.JSONDecodeError, OSError):
+        return []
 
 
 @router.get("/rules")
