@@ -1,4 +1,5 @@
 import os
+import json
 import pytest
 import importlib
 from unittest.mock import patch
@@ -166,4 +167,92 @@ def test_sem_autenticacao_401():
     import main
     client = TestClient(main.app)
     r = client.get("/api/projects")
+    assert r.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# GET /api/projects/{projeto}/delete-preview
+# ---------------------------------------------------------------------------
+
+def _metrics_stub_com_id():
+    return {
+        "ram": {"total_mb": 8000.0},
+        "containers": [
+            {
+                "id": "abc111", "id_full": "abc111full",
+                "name": "mecanicapro-backend-1", "status": "running",
+                "cpu_percent": 5.0, "mem_usage_mb": 100.0,
+                "labels": {"com.docker.compose.project": "mecanicapro"},
+            },
+            {
+                "id": "abc222", "id_full": "abc222full",
+                "name": "mecanicapro-frontend-1", "status": "running",
+                "cpu_percent": 2.0, "mem_usage_mb": 50.0,
+                "labels": {"com.docker.compose.project": "mecanicapro"},
+            },
+        ],
+    }
+
+
+def test_delete_preview_bloqueia_vps_monitor(auth_client):
+    r = auth_client.get("/api/projects/vps-monitor/delete-preview")
+    assert r.status_code == 400
+
+
+def test_delete_preview_404_projeto_inexistente(auth_client):
+    with patch("collector.scheduler._last_metrics", _metrics_stub_com_id()):
+        r = auth_client.get("/api/projects/projeto-fantasma/delete-preview")
+    assert r.status_code == 404
+
+
+def test_delete_preview_monta_containers_volumes_e_candidatas(auth_client, tmp_path, monkeypatch):
+    monkeypatch.setenv("TRAEFIK_DYNAMIC_DIR", str(tmp_path))
+    monkeypatch.setenv("FIREWALL_STATE_FILE", str(tmp_path / "firewall-state.json"))
+    import api.projects as projects_mod
+    importlib.reload(projects_mod)
+    import main
+    importlib.reload(main)
+    client = TestClient(main.app)
+    client.headers.update(auth_client.headers)
+
+    (tmp_path / "vps-monitor-mecanicapro.yml").write_text(
+        'rule: "Host(`mecanicapro.dlsistemas.com.br`)"', encoding="utf-8",
+    )
+    (tmp_path / "firewall-state.json").write_text(json.dumps({"regras": [
+        {"porta": 22, "protocolo": "tcp", "permitir": True, "origem_ip": None, "protegida": True},
+        {"porta": 3000, "protocolo": "tcp", "permitir": True, "origem_ip": None, "protegida": False},
+        {"porta": 9999, "protocolo": "tcp", "permitir": True, "origem_ip": None, "protegida": False},
+    ]}), encoding="utf-8")
+
+    async def _fake_inspect(container_id):
+        base = {
+            "abc111full": {
+                "Mounts": [{"Type": "volume", "Name": "mecanicapro_dados"}],
+                "NetworkSettings": {"Ports": {"3000/tcp": [{"HostIp": "0.0.0.0", "HostPort": "3000"}]}},
+            },
+            "abc222full": {
+                "Mounts": [{"Type": "bind", "Source": "/host/x", "Destination": "/x"}],
+                "NetworkSettings": {"Ports": {"80/tcp": None}},
+            },
+        }
+        return base[container_id]
+
+    with patch("collector.scheduler._last_metrics", _metrics_stub_com_id()), \
+         patch.object(projects_mod.docker_client, "container_inspect", side_effect=_fake_inspect):
+        r = client.get("/api/projects/mecanicapro/delete-preview")
+
+    assert r.status_code == 200
+    body = r.json()
+    assert {c["name"] for c in body["containers"]} == {"mecanicapro-backend-1", "mecanicapro-frontend-1"}
+    assert body["volumes"] == ["mecanicapro_dados"]
+    assert body["rotas_candidatas"] == ["vps-monitor-mecanicapro.yml"]
+    assert body["regras_firewall_candidatas"] == [
+        {"porta": 3000, "protocolo": "tcp", "permitir": True, "origem_ip": None}
+    ]
+
+
+def test_delete_preview_sem_autenticacao_401():
+    import main
+    client = TestClient(main.app)
+    r = client.get("/api/projects/mecanicapro/delete-preview")
     assert r.status_code == 401
