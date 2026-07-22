@@ -230,7 +230,7 @@ def delete_project(projeto: str, body: ProjectDeleteIn, token_data: dict = Depen
         raise HTTPException(status_code=400, detail="Snapshot informado não existe para este projeto.")
 
     for filename in body.rotas_selecionadas:
-        if not _ROTA_TRAEFIK_VALIDA_RE.match(filename):
+        if not _ROTA_TRAEFIK_VALIDA_RE.fullmatch(filename):
             raise HTTPException(status_code=400, detail=f"Rota '{filename}' não é gerenciada pelo monitor.")
 
     for regra in body.regras_selecionadas:

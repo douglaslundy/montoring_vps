@@ -54,7 +54,7 @@ DYNAMIC_DIR = "'"$TRAEFIK_DYNAMIC_DIR"'"
 NOME_VALIDO_RE = re.compile(r"^vps-monitor-[a-zA-Z0-9_-]+\.yml$")
 arquivos = json.load(sys.stdin)
 for nome in arquivos:
-    if not NOME_VALIDO_RE.match(nome):
+    if not NOME_VALIDO_RE.fullmatch(nome):
         print(f"Recusado: {nome} nao e um nome de rota valido gerenciada pelo monitor.")
         continue
     caminho = os.path.join(DYNAMIC_DIR, nome)
