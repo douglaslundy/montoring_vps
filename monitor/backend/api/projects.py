@@ -1,11 +1,19 @@
 import os
 import re
 import json
-from fastapi import APIRouter, HTTPException
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
 from collector.scheduler import docker_client, get_last_metrics
 from api._project_grouping import agrupar_por_projeto
 import api.firewall as firewall_mod
 from api.firewall import PORTAS_PROTEGIDAS
+
+import models.database as db_module
+from api.auth import get_token_data
+from api.backups import BACKUPS_DIR, _ARQUIVO_VALIDO_RE
+from models.database import ProjectDeleteRequest
 
 router = APIRouter()
 
@@ -183,3 +191,64 @@ async def delete_preview(projeto: str):
         "rotas_candidatas": _rotas_candidatas(dominio_projeto),
         "regras_firewall_candidatas": _regras_firewall_candidatas(portas_publicadas),
     }
+
+
+_STATUS_ATIVOS_DELETE = ["pending", "running"]
+
+
+class RegraSelecionada(BaseModel):
+    porta: int
+    protocolo: str
+    permitir: bool
+    origem_ip: Optional[str] = None
+
+
+class ProjectDeleteIn(BaseModel):
+    snapshot_arquivo: str
+    rotas_selecionadas: list[str] = []
+    regras_selecionadas: list[RegraSelecionada] = []
+
+
+def _job_delete_pendente_existe(session: Session, projeto: str) -> bool:
+    return session.query(ProjectDeleteRequest).filter(
+        ProjectDeleteRequest.projeto == projeto,
+        ProjectDeleteRequest.status.in_(_STATUS_ATIVOS_DELETE),
+    ).count() > 0
+
+
+@router.post("/projects/{projeto}/delete", status_code=202)
+def delete_project(projeto: str, body: ProjectDeleteIn, token_data: dict = Depends(get_token_data)):
+    if projeto == PROJETO_PROTEGIDO:
+        raise HTTPException(status_code=400, detail=f"O projeto '{PROJETO_PROTEGIDO}' não pode ser excluído.")
+    _projeto_ou_404(projeto)
+
+    if not _ARQUIVO_VALIDO_RE.match(body.snapshot_arquivo):
+        raise HTTPException(status_code=400, detail="Nome de arquivo de snapshot inválido.")
+    caminho_snapshot = os.path.join(BACKUPS_DIR, projeto, body.snapshot_arquivo)
+    if not os.path.isfile(caminho_snapshot):
+        raise HTTPException(status_code=400, detail="Snapshot informado não existe para este projeto.")
+
+    for filename in body.rotas_selecionadas:
+        if not filename.startswith("vps-monitor-"):
+            raise HTTPException(status_code=400, detail=f"Rota '{filename}' não é gerenciada pelo monitor.")
+
+    for regra in body.regras_selecionadas:
+        if regra.porta in PORTAS_PROTEGIDAS:
+            raise HTTPException(status_code=400, detail=f"Porta {regra.porta} é protegida e não pode ser removida.")
+
+    username = token_data.get("sub", "desconhecido")
+
+    with Session(db_module.engine) as session:
+        if _job_delete_pendente_existe(session, projeto):
+            raise HTTPException(status_code=409, detail=f"Já existe uma exclusão em andamento para '{projeto}'.")
+        req = ProjectDeleteRequest(
+            projeto=projeto,
+            rotas_traefik_selecionadas=json.dumps(body.rotas_selecionadas),
+            regras_firewall_selecionadas=json.dumps([r.dict() for r in body.regras_selecionadas]),
+            snapshot_arquivo=body.snapshot_arquivo,
+            status="pending",
+            username=username,
+        )
+        session.add(req)
+        session.commit()
+        return {"request_id": req.id}

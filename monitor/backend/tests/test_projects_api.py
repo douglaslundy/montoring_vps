@@ -258,3 +258,111 @@ def test_delete_preview_sem_autenticacao_401():
     client = TestClient(main.app)
     r = client.get("/api/projects/mecanicapro/delete-preview")
     assert r.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# POST /api/projects/{projeto}/delete
+# ---------------------------------------------------------------------------
+
+def _preparar_snapshot(tmp_path, monkeypatch, projeto="mecanicapro", arquivo="20260721T140000Z.tar.gz"):
+    backups_dir = tmp_path / "backups"
+    (backups_dir / projeto).mkdir(parents=True)
+    (backups_dir / projeto / arquivo).write_bytes(b"conteudo-fake")
+    monkeypatch.setenv("BACKUPS_DIR", str(backups_dir))
+    import api.backups as backups_mod
+    importlib.reload(backups_mod)
+    import api.projects as projects_mod
+    importlib.reload(projects_mod)
+    import main
+    importlib.reload(main)
+    client = TestClient(main.app)
+    return client, arquivo
+
+
+def test_post_delete_bloqueia_vps_monitor(auth_client):
+    r = auth_client.post("/api/projects/vps-monitor/delete", json={
+        "snapshot_arquivo": "qualquer.tar.gz", "rotas_selecionadas": [], "regras_selecionadas": [],
+    })
+    assert r.status_code == 400
+
+
+def test_post_delete_404_projeto_inexistente(auth_client, tmp_path, monkeypatch):
+    client, arquivo = _preparar_snapshot(tmp_path, monkeypatch, projeto="projeto-fantasma")
+    client.headers.update(auth_client.headers)
+    with patch("collector.scheduler._last_metrics", _metrics_stub_com_id()):
+        r = client.post("/api/projects/projeto-fantasma/delete", json={
+            "snapshot_arquivo": arquivo, "rotas_selecionadas": [], "regras_selecionadas": [],
+        })
+    assert r.status_code == 404
+
+
+def test_post_delete_400_snapshot_inexistente(auth_client, tmp_path, monkeypatch):
+    client, _ = _preparar_snapshot(tmp_path, monkeypatch)
+    client.headers.update(auth_client.headers)
+    with patch("collector.scheduler._last_metrics", _metrics_stub_com_id()):
+        r = client.post("/api/projects/mecanicapro/delete", json={
+            "snapshot_arquivo": "nao-existe.tar.gz", "rotas_selecionadas": [], "regras_selecionadas": [],
+        })
+    assert r.status_code == 400
+
+
+def test_post_delete_400_rota_nao_gerenciada(auth_client, tmp_path, monkeypatch):
+    client, arquivo = _preparar_snapshot(tmp_path, monkeypatch)
+    client.headers.update(auth_client.headers)
+    with patch("collector.scheduler._last_metrics", _metrics_stub_com_id()):
+        r = client.post("/api/projects/mecanicapro/delete", json={
+            "snapshot_arquivo": arquivo, "rotas_selecionadas": ["mecanicapro-manual.yml"], "regras_selecionadas": [],
+        })
+    assert r.status_code == 400
+
+
+def test_post_delete_400_regra_porta_protegida(auth_client, tmp_path, monkeypatch):
+    client, arquivo = _preparar_snapshot(tmp_path, monkeypatch)
+    client.headers.update(auth_client.headers)
+    with patch("collector.scheduler._last_metrics", _metrics_stub_com_id()):
+        r = client.post("/api/projects/mecanicapro/delete", json={
+            "snapshot_arquivo": arquivo, "rotas_selecionadas": [],
+            "regras_selecionadas": [{"porta": 22, "protocolo": "tcp", "permitir": True, "origem_ip": None}],
+        })
+    assert r.status_code == 400
+
+
+def test_post_delete_sucesso(auth_client, tmp_path, monkeypatch, test_db):
+    client, arquivo = _preparar_snapshot(tmp_path, monkeypatch)
+    client.headers.update(auth_client.headers)
+    with patch("collector.scheduler._last_metrics", _metrics_stub_com_id()):
+        r = client.post("/api/projects/mecanicapro/delete", json={
+            "snapshot_arquivo": arquivo,
+            "rotas_selecionadas": ["vps-monitor-mecanicapro.yml"],
+            "regras_selecionadas": [{"porta": 3000, "protocolo": "tcp", "permitir": True, "origem_ip": None}],
+        })
+    assert r.status_code == 202
+    request_id = r.json()["request_id"]
+
+    from sqlalchemy.orm import Session
+    with Session(test_db.engine) as session:
+        req = session.get(test_db.ProjectDeleteRequest, request_id)
+    assert req.projeto == "mecanicapro"
+    assert req.snapshot_arquivo == arquivo
+    assert json.loads(req.rotas_traefik_selecionadas) == ["vps-monitor-mecanicapro.yml"]
+    assert json.loads(req.regras_firewall_selecionadas)[0]["porta"] == 3000
+    assert req.status == "pending"
+
+
+def test_post_delete_409_pedido_ja_pendente(auth_client, tmp_path, monkeypatch):
+    client, arquivo = _preparar_snapshot(tmp_path, monkeypatch)
+    client.headers.update(auth_client.headers)
+    body = {"snapshot_arquivo": arquivo, "rotas_selecionadas": [], "regras_selecionadas": []}
+    with patch("collector.scheduler._last_metrics", _metrics_stub_com_id()):
+        client.post("/api/projects/mecanicapro/delete", json=body)
+        r = client.post("/api/projects/mecanicapro/delete", json=body)
+    assert r.status_code == 409
+
+
+def test_post_delete_sem_autenticacao_401():
+    import main
+    client = TestClient(main.app)
+    r = client.post("/api/projects/mecanicapro/delete", json={
+        "snapshot_arquivo": "x.tar.gz", "rotas_selecionadas": [], "regras_selecionadas": [],
+    })
+    assert r.status_code == 401
