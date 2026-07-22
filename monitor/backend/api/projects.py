@@ -4,6 +4,7 @@ import json
 from fastapi import APIRouter, HTTPException
 from collector.scheduler import docker_client, get_last_metrics
 from api._project_grouping import agrupar_por_projeto
+import api.firewall as firewall_mod
 from api.firewall import PORTAS_PROTEGIDAS
 
 router = APIRouter()
@@ -26,31 +27,16 @@ def _dominio_por_labels(containers: list[dict]) -> str | None:
 
 
 def _dominio_por_arquivo_dinamico(projeto: str) -> str | None:
-    # Tenta primeiro projeto.yml (manual)
     path = os.path.join(TRAEFIK_DYNAMIC_DIR, f"{projeto}.yml")
-    if os.path.isfile(path):
-        try:
-            with open(path, encoding="utf-8") as f:
-                conteudo = f.read()
-            hosts = _HOST_RE.findall(conteudo)
-            if hosts:
-                return hosts[0]
-        except OSError:
-            pass
-
-    # Depois tenta vps-monitor-projeto.yml (gerenciado pelo vps-monitor)
-    path = os.path.join(TRAEFIK_DYNAMIC_DIR, f"vps-monitor-{projeto}.yml")
-    if os.path.isfile(path):
-        try:
-            with open(path, encoding="utf-8") as f:
-                conteudo = f.read()
-            hosts = _HOST_RE.findall(conteudo)
-            if hosts:
-                return hosts[0]
-        except OSError:
-            pass
-
-    return None
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            conteudo = f.read()
+    except OSError:
+        return None
+    hosts = _HOST_RE.findall(conteudo)
+    return hosts[0] if hosts else None
 
 
 def _resolver_dominio(projeto: str, containers: list[dict]) -> str | None:
@@ -113,6 +99,25 @@ def _portas_publicadas(inspect: dict) -> set[int]:
     return portas
 
 
+def _dominio_por_arquivo_vps_monitor(projeto: str) -> str | None:
+    # Usado apenas pelo delete-preview: além do dominio resolvido por labels ou
+    # por {projeto}.yml (manual), o dynamic file gerenciado pelo vps-monitor
+    # (vps-monitor-{projeto}.yml) também pode ser a única fonte do dominio
+    # quando o container não expõe mais labels de traefik. Não usar isso em
+    # _resolver_dominio/_dominio_por_arquivo_dinamico, que são compartilhados
+    # com GET /api/projects e devem manter o comportamento original.
+    path = os.path.join(TRAEFIK_DYNAMIC_DIR, f"vps-monitor-{projeto}.yml")
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            conteudo = f.read()
+    except OSError:
+        return None
+    hosts = _HOST_RE.findall(conteudo)
+    return hosts[0] if hosts else None
+
+
 def _rotas_candidatas(dominio_projeto: str | None) -> list[str]:
     if not dominio_projeto or not os.path.isdir(TRAEFIK_DYNAMIC_DIR):
         return []
@@ -132,7 +137,7 @@ def _rotas_candidatas(dominio_projeto: str | None) -> list[str]:
 
 
 def _regras_firewall_candidatas(portas_projeto: set[int]) -> list[dict]:
-    firewall_state_file = os.environ.get("FIREWALL_STATE_FILE", "/opt/vps-monitor-firewall/state.json")
+    firewall_state_file = firewall_mod.FIREWALL_STATE_FILE
     if not portas_projeto or not os.path.isfile(firewall_state_file):
         return []
     try:
@@ -170,7 +175,7 @@ async def delete_preview(projeto: str):
                 volumes.add(mount["Name"])
         portas_publicadas |= _portas_publicadas(inspect)
 
-    dominio_projeto = _resolver_dominio(projeto, membros)
+    dominio_projeto = _resolver_dominio(projeto, membros) or _dominio_por_arquivo_vps_monitor(projeto)
 
     return {
         "containers": [{"name": m.get("name"), "status": m.get("status")} for m in membros],

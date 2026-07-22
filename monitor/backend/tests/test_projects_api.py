@@ -208,6 +208,8 @@ def test_delete_preview_404_projeto_inexistente(auth_client):
 def test_delete_preview_monta_containers_volumes_e_candidatas(auth_client, tmp_path, monkeypatch):
     monkeypatch.setenv("TRAEFIK_DYNAMIC_DIR", str(tmp_path))
     monkeypatch.setenv("FIREWALL_STATE_FILE", str(tmp_path / "firewall-state.json"))
+    import api.firewall as firewall_mod
+    importlib.reload(firewall_mod)
     import api.projects as projects_mod
     importlib.reload(projects_mod)
     import main
