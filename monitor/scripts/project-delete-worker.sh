@@ -75,6 +75,7 @@ for r in regras:
     if porta in PORTAS_PROTEGIDAS:
         continue
     protocolo = r["protocolo"]
+    protocolo_escapado = protocolo.replace("\x27", "\x27\x27")
     permitir = 1 if r["permitir"] else 0
     origem = r.get("origem_ip")
     if origem:
@@ -85,7 +86,7 @@ for r in regras:
     print(
         "INSERT INTO firewall_rule_request "
         "(acao, permitir, porta, protocolo, origem_ip, status, criado_em, username) VALUES "
-        "(\x27remove\x27, " + str(permitir) + ", " + str(porta) + ", \x27" + protocolo + "\x27, "
+        "(\x27remove\x27, " + str(permitir) + ", " + str(porta) + ", \x27" + protocolo_escapado + "\x27, "
         + origem_sql + ", \x27pending\x27, datetime(\x27now\x27), \x27project-delete-worker\x27);"
     )
 ' | while IFS= read -r stmt; do
@@ -117,8 +118,19 @@ fazer_delete_projeto() {
     return 1
   fi
 
+  local falhou=0
+
   remover_rotas_traefik "$rotas_json"
+  if [ "${PIPESTATUS[0]}" -ne 0 ]; then
+    echo "AVISO: falha ao remover rotas Traefik" >&2
+    falhou=1
+  fi
+
   enfileirar_remocoes_firewall "$regras_json"
+  if [ "${PIPESTATUS[0]}" -ne 0 ]; then
+    echo "AVISO: falha ao enfileirar remocoes de firewall" >&2
+    falhou=1
+  fi
 
   local volumes
   volumes=$(for c in "${containers_array[@]}"; do
@@ -130,12 +142,17 @@ fazer_delete_projeto() {
       [ -z "$vol" ] && continue
       if ! docker volume rm "$vol"; then
         echo "AVISO: falha ao remover volume '$vol'" >&2
+        falhou=1
       fi
     done <<< "$volumes"
   fi
 
   if ! docker rm "${containers_array[@]}"; then
     echo "AVISO: falha ao remover containers de '$projeto'" >&2
+    return 1
+  fi
+
+  if [ "$falhou" -eq 1 ]; then
     return 1
   fi
 
