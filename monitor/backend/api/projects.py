@@ -20,6 +20,7 @@ router = APIRouter()
 TRAEFIK_DYNAMIC_DIR = os.environ.get("TRAEFIK_DYNAMIC_DIR", "/opt/traefik/dynamic")
 _TRAEFIK_RULE_LABEL_RE = re.compile(r"^traefik\.http\.routers\.[^.]+\.rule$")
 _HOST_RE = re.compile(r"Host(?:Regexp)?\(`([^`]+)`\)")
+_ROTA_TRAEFIK_VALIDA_RE = re.compile(r"^vps-monitor-[a-zA-Z0-9_-]+\.yml$")
 
 
 def _dominio_por_labels(containers: list[dict]) -> str | None:
@@ -229,7 +230,7 @@ def delete_project(projeto: str, body: ProjectDeleteIn, token_data: dict = Depen
         raise HTTPException(status_code=400, detail="Snapshot informado não existe para este projeto.")
 
     for filename in body.rotas_selecionadas:
-        if not filename.startswith("vps-monitor-"):
+        if not _ROTA_TRAEFIK_VALIDA_RE.match(filename):
             raise HTTPException(status_code=400, detail=f"Rota '{filename}' não é gerenciada pelo monitor.")
 
     for regra in body.regras_selecionadas:

@@ -48,13 +48,14 @@ sqlite3_exec() {
 remover_rotas_traefik() {
   local rotas_json="$1"
   echo "$rotas_json" | python3 -c '
-import json, sys, os
+import json, re, sys, os
 
 DYNAMIC_DIR = "'"$TRAEFIK_DYNAMIC_DIR"'"
+NOME_VALIDO_RE = re.compile(r"^vps-monitor-[a-zA-Z0-9_-]+\.yml$")
 arquivos = json.load(sys.stdin)
 for nome in arquivos:
-    if not nome.startswith("vps-monitor-"):
-        print(f"Recusado: {nome} nao comeca com vps-monitor-, nunca removido pelo worker.")
+    if not NOME_VALIDO_RE.match(nome):
+        print(f"Recusado: {nome} nao e um nome de rota valido gerenciada pelo monitor.")
         continue
     caminho = os.path.join(DYNAMIC_DIR, nome)
     if os.path.isfile(caminho):
@@ -137,6 +138,11 @@ fazer_delete_projeto() {
     docker inspect "$c" --format '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}}{{"\n"}}{{end}}{{end}}'
   done | sort -u)
 
+  if ! docker rm "${containers_array[@]}"; then
+    echo "AVISO: falha ao remover containers de '$projeto'" >&2
+    return 1
+  fi
+
   if [ -n "$volumes" ]; then
     while IFS= read -r vol; do
       [ -z "$vol" ] && continue
@@ -145,11 +151,6 @@ fazer_delete_projeto() {
         falhou=1
       fi
     done <<< "$volumes"
-  fi
-
-  if ! docker rm "${containers_array[@]}"; then
-    echo "AVISO: falha ao remover containers de '$projeto'" >&2
-    return 1
   fi
 
   if [ "$falhou" -eq 1 ]; then
