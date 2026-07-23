@@ -56,6 +56,30 @@ sqlite3_exec() {
   sqlite3 -cmd ".timeout 5000" "$DB_PATH" "$1"
 }
 
+# Preenche o array global COMPOSE_FLAGS com os "-f <arquivo>" corretos pra
+# reproduzir o deploy original de um projeto. O Docker Compose grava a lista
+# exata de arquivos usados (com -f) no label
+# com.docker.compose.project.config_files de cada container — sem ler esse
+# label, "docker compose stop"/"up -d" bare usa so o docker-compose.yml da
+# working_dir, descartando qualquer override (ex: docker-compose.prod.yml,
+# docker-compose.traefik.yml) usado no deploy real. Projetos deployados com
+# um unico arquivo (ex: o proprio vps-monitor) continuam funcionando igual:
+# o label tem so 1 caminho, resultando em 1 "-f", equivalente ao comportamento
+# anterior.
+_definir_compose_flags() {
+  local container="$1"
+  local config_files
+  config_files=$(docker inspect "$container" --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}')
+  COMPOSE_FLAGS=()
+  if [ -n "$config_files" ]; then
+    local IFS=','
+    local arquivo
+    for arquivo in $config_files; do
+      COMPOSE_FLAGS+=(-f "$arquivo")
+    done
+  fi
+}
+
 fazer_snapshot() {
   local projeto="$1"
   local containers
@@ -82,8 +106,27 @@ fazer_snapshot() {
   staging=$(mktemp -d)
   mkdir -p "$staging/volumes"
 
+  local COMPOSE_FLAGS
+  _definir_compose_flags "$primeiro"
+  # Persiste os -f usados neste momento dentro do proprio snapshot: no
+  # restore, "$working_dir" e sobrescrito pelo conteudo salvo aqui (rsync
+  # --delete), entao os .yml que existirem no disco NAQUELE momento podem ja
+  # ter mudado desde este snapshot. Reler o label do container ao vivo no
+  # momento do restore refletiria a config atual, nao a que este snapshot
+  # realmente representa — por isso o restore usa este arquivo, nao o label.
+  # Escrita condicional: "printf '%s\n'" com array vazio ainda produz UMA
+  # linha vazia (nao zero linhas) — sem essa checagem, o projeto mais comum
+  # (arquivo unico, ex: o proprio vps-monitor) reconstruiria no restore um
+  # array de 1 elemento com string vazia em vez de array genuinamente vazio,
+  # quebrando "docker compose "" up -d".
+  if [ "${#COMPOSE_FLAGS[@]}" -gt 0 ]; then
+    printf '%s\n' "${COMPOSE_FLAGS[@]}" > "$staging/compose_flags.txt"
+  else
+    : > "$staging/compose_flags.txt"
+  fi
+
   local falhou=0
-  if ! (cd "$working_dir" && docker compose stop); then
+  if ! (cd "$working_dir" && docker compose "${COMPOSE_FLAGS[@]}" stop); then
     echo "Falha ao parar containers de '$projeto'" >&2
     falhou=1
   fi
@@ -110,7 +153,7 @@ fazer_snapshot() {
   # Sempre tenta subir os containers de novo, mesmo que o stop ou a copia
   # tenham falhado — nunca deixar um projeto de cliente parado por causa de
   # uma falha do script (mesma garantia que fazer_restore ja tinha).
-  if ! (cd "$working_dir" && docker compose up -d); then
+  if ! (cd "$working_dir" && docker compose "${COMPOSE_FLAGS[@]}" up -d); then
     echo "AVISO: falha ao subir containers de '$projeto' apos snapshot" >&2
     falhou=1
   fi
@@ -169,8 +212,11 @@ fazer_restore() {
     return 1
   fi
 
+  local COMPOSE_FLAGS
+  _definir_compose_flags "$primeiro"
+
   local falhou=0
-  if ! (cd "$working_dir" && docker compose stop); then
+  if ! (cd "$working_dir" && docker compose "${COMPOSE_FLAGS[@]}" stop); then
     echo "Falha ao parar containers de '$projeto' antes do restore" >&2
     falhou=1
   fi
@@ -195,9 +241,21 @@ fazer_restore() {
     done
   fi
 
+  # Le os -f salvos DENTRO do snapshot (nao o label do container ao vivo,
+  # ja obsoleto pra este fim): o rsync acima acabou de sobrescrever
+  # "$working_dir" com o .yml deste snapshot especifico, entao "up -d" tem
+  # que usar os arquivos que correspondem a ESSE conteudo, nao o conjunto
+  # que o container tinha antes do restore comecar. Snapshot antigo (sem
+  # esse arquivo, gerado antes deste fix) cai no fallback do COMPOSE_FLAGS
+  # pre-restore, igual ao comportamento anterior.
+  local COMPOSE_FLAGS_RESTORE=("${COMPOSE_FLAGS[@]}")
+  if [ -f "$staging/compose_flags.txt" ]; then
+    mapfile -t COMPOSE_FLAGS_RESTORE < "$staging/compose_flags.txt"
+  fi
+
   rm -rf "$staging"
 
-  if ! (cd "$working_dir" && docker compose up -d); then
+  if ! (cd "$working_dir" && docker compose "${COMPOSE_FLAGS_RESTORE[@]}" up -d); then
     echo "AVISO: falha ao subir containers de '$projeto' apos restore" >&2
     falhou=1
   fi
