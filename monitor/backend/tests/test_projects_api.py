@@ -327,10 +327,47 @@ def test_post_delete_400_regra_porta_protegida(auth_client, tmp_path, monkeypatc
     assert r.status_code == 400
 
 
+def _preparar_candidatas_mecanicapro(tmp_path, monkeypatch):
+    # Mesmo padrao de test_delete_preview_monta_containers_volumes_e_candidatas:
+    # o POST /delete agora recalcula as candidatas (rota/regra) do projeto e
+    # exige que o que o cliente mandou seja um subconjunto delas, entao
+    # qualquer teste que mande rotas/regras nao-vazias precisa deste setup.
+    monkeypatch.setenv("TRAEFIK_DYNAMIC_DIR", str(tmp_path))
+    monkeypatch.setenv("FIREWALL_STATE_FILE", str(tmp_path / "firewall-state.json"))
+    import api.firewall as firewall_mod
+    importlib.reload(firewall_mod)
+    import api.projects as projects_mod
+    importlib.reload(projects_mod)
+    import main
+    importlib.reload(main)
+    client = TestClient(main.app)
+
+    (tmp_path / "vps-monitor-mecanicapro.yml").write_text(
+        'rule: "Host(`mecanicapro.dlsistemas.com.br`)"', encoding="utf-8",
+    )
+    (tmp_path / "firewall-state.json").write_text(json.dumps({"regras": [
+        {"porta": 3000, "protocolo": "tcp", "permitir": True, "origem_ip": None, "protegida": False},
+    ]}), encoding="utf-8")
+
+    async def _fake_inspect(container_id):
+        base = {
+            "abc111full": {
+                "Mounts": [],
+                "NetworkSettings": {"Ports": {"3000/tcp": [{"HostIp": "0.0.0.0", "HostPort": "3000"}]}},
+            },
+            "abc222full": {"Mounts": [], "NetworkSettings": {"Ports": {}}},
+        }
+        return base[container_id]
+
+    return client, projects_mod, _fake_inspect
+
+
 def test_post_delete_sucesso(auth_client, tmp_path, monkeypatch, test_db):
     client, arquivo = _preparar_snapshot(tmp_path, monkeypatch)
+    client, projects_mod, fake_inspect = _preparar_candidatas_mecanicapro(tmp_path, monkeypatch)
     client.headers.update(auth_client.headers)
-    with patch("collector.scheduler._last_metrics", _metrics_stub_com_id()):
+    with patch("collector.scheduler._last_metrics", _metrics_stub_com_id()), \
+         patch.object(projects_mod.docker_client, "container_inspect", side_effect=fake_inspect):
         r = client.post("/api/projects/mecanicapro/delete", json={
             "snapshot_arquivo": arquivo,
             "rotas_selecionadas": ["vps-monitor-mecanicapro.yml"],
@@ -347,6 +384,41 @@ def test_post_delete_sucesso(auth_client, tmp_path, monkeypatch, test_db):
     assert json.loads(req.rotas_traefik_selecionadas) == ["vps-monitor-mecanicapro.yml"]
     assert json.loads(req.regras_firewall_selecionadas)[0]["porta"] == 3000
     assert req.status == "pending"
+
+
+def test_post_delete_rejeita_rota_de_outro_projeto(auth_client, tmp_path, monkeypatch):
+    # vps-monitor-outroprojeto.yml e um nome de arquivo valido (bate no regex
+    # de rota gerenciada), mas nao e candidata do "mecanicapro" (nao aponta
+    # pro dominio dele) — tem que ser rejeitado, nao só "aceito porque o nome
+    # bate no formato esperado".
+    client, arquivo = _preparar_snapshot(tmp_path, monkeypatch)
+    client, projects_mod, fake_inspect = _preparar_candidatas_mecanicapro(tmp_path, monkeypatch)
+    client.headers.update(auth_client.headers)
+    with patch("collector.scheduler._last_metrics", _metrics_stub_com_id()), \
+         patch.object(projects_mod.docker_client, "container_inspect", side_effect=fake_inspect):
+        r = client.post("/api/projects/mecanicapro/delete", json={
+            "snapshot_arquivo": arquivo,
+            "rotas_selecionadas": ["vps-monitor-outroprojeto.yml"],
+            "regras_selecionadas": [],
+        })
+    assert r.status_code == 400
+
+
+def test_post_delete_rejeita_regra_de_outro_projeto(auth_client, tmp_path, monkeypatch):
+    # Porta 9999 nao esta nas portas publicadas do "mecanicapro" no stub de
+    # inspect — mesmo sendo uma regra "real" (nao protegida), nao pertence a
+    # este projeto e tem que ser rejeitada.
+    client, arquivo = _preparar_snapshot(tmp_path, monkeypatch)
+    client, projects_mod, fake_inspect = _preparar_candidatas_mecanicapro(tmp_path, monkeypatch)
+    client.headers.update(auth_client.headers)
+    with patch("collector.scheduler._last_metrics", _metrics_stub_com_id()), \
+         patch.object(projects_mod.docker_client, "container_inspect", side_effect=fake_inspect):
+        r = client.post("/api/projects/mecanicapro/delete", json={
+            "snapshot_arquivo": arquivo,
+            "rotas_selecionadas": [],
+            "regras_selecionadas": [{"porta": 9999, "protocolo": "tcp", "permitir": True, "origem_ip": None}],
+        })
+    assert r.status_code == 400
 
 
 def test_post_delete_409_pedido_ja_pendente(auth_client, tmp_path, monkeypatch):

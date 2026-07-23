@@ -108,6 +108,17 @@ def _portas_publicadas(inspect: dict) -> set[int]:
     return portas
 
 
+async def _portas_publicadas_do_projeto(membros: list[dict]) -> set[int]:
+    portas_publicadas: set[int] = set()
+    for m in membros:
+        id_full = m.get("id_full")
+        if not id_full:
+            continue
+        inspect = await docker_client.container_inspect(id_full)
+        portas_publicadas |= _portas_publicadas(inspect)
+    return portas_publicadas
+
+
 def _dominio_por_arquivo_vps_monitor(projeto: str) -> str | None:
     # Usado apenas pelo delete-preview: além do dominio resolvido por labels ou
     # por {projeto}.yml (manual), o dynamic file gerenciado pelo vps-monitor
@@ -218,10 +229,10 @@ def _job_delete_pendente_existe(session: Session, projeto: str) -> bool:
 
 
 @router.post("/projects/{projeto}/delete", status_code=202)
-def delete_project(projeto: str, body: ProjectDeleteIn, token_data: dict = Depends(get_token_data)):
+async def delete_project(projeto: str, body: ProjectDeleteIn, token_data: dict = Depends(get_token_data)):
     if projeto == PROJETO_PROTEGIDO:
         raise HTTPException(status_code=400, detail=f"O projeto '{PROJETO_PROTEGIDO}' não pode ser excluído.")
-    _projeto_ou_404(projeto)
+    membros = _projeto_ou_404(projeto)
 
     if not _ARQUIVO_VALIDO_RE.match(body.snapshot_arquivo):
         raise HTTPException(status_code=400, detail="Nome de arquivo de snapshot inválido.")
@@ -229,13 +240,37 @@ def delete_project(projeto: str, body: ProjectDeleteIn, token_data: dict = Depen
     if not os.path.isfile(caminho_snapshot):
         raise HTTPException(status_code=400, detail="Snapshot informado não existe para este projeto.")
 
+    # Recalcula as mesmas candidatas do preview e exige que o que o cliente
+    # mandou seja um subconjunto delas — sem isso, um POST direto (fora da
+    # UI, que so manda o que o proprio preview ofereceu) poderia remover a
+    # rota Traefik ou enfileirar remocao de regra de firewall de OUTRO
+    # projeto, ja que o worker so confia no que chega aqui.
+    dominio_projeto = _resolver_dominio(projeto, membros) or _dominio_por_arquivo_vps_monitor(projeto)
+    rotas_validas = set(_rotas_candidatas(dominio_projeto))
     for filename in body.rotas_selecionadas:
         if not _ROTA_TRAEFIK_VALIDA_RE.fullmatch(filename):
             raise HTTPException(status_code=400, detail=f"Rota '{filename}' não é gerenciada pelo monitor.")
+        if filename not in rotas_validas:
+            raise HTTPException(status_code=400, detail=f"Rota '{filename}' não pertence ao projeto '{projeto}'.")
 
     for regra in body.regras_selecionadas:
         if regra.porta in PORTAS_PROTEGIDAS:
             raise HTTPException(status_code=400, detail=f"Porta {regra.porta} é protegida e não pode ser removida.")
+
+    if body.regras_selecionadas:
+        portas_publicadas = await _portas_publicadas_do_projeto(membros)
+        regras_validas = _regras_firewall_candidatas(portas_publicadas)
+        for regra in body.regras_selecionadas:
+            pertence = any(
+                r["porta"] == regra.porta and r["protocolo"] == regra.protocolo
+                and r["permitir"] == regra.permitir and r.get("origem_ip") == regra.origem_ip
+                for r in regras_validas
+            )
+            if not pertence:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Regra de firewall {regra.porta}/{regra.protocolo} não pertence ao projeto '{projeto}'.",
+                )
 
     username = token_data.get("sub", "desconhecido")
 
