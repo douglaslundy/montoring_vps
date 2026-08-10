@@ -406,3 +406,44 @@ async def test_collect_all_labels_ausentes_vira_dict_vazio():
         result = await client.collect_all()
 
     assert result[0]["labels"] == {}
+
+
+# ---------------------------------------------------------------------------
+# Reaproveitamento de conexão (Fix: monitor sobrecarregado — collect_all() abria um
+# httpx.AsyncClient novo por container a cada ciclo de 30s)
+# ---------------------------------------------------------------------------
+
+def test_client_reaproveita_a_mesma_conexao_entre_chamadas():
+    """_client() deve devolver a mesma instância de AsyncClient em chamadas sucessivas,
+    não criar uma nova a cada vez."""
+    from collector.docker_client import DockerClient
+    client = DockerClient()
+
+    first = client._client()
+    second = client._client()
+
+    assert first is second
+
+
+@pytest.mark.asyncio
+async def test_client_recria_conexao_apos_aclose():
+    """Depois de aclose(), a próxima chamada a _client() deve abrir uma conexão nova (não
+    reaproveitar uma já fechada)."""
+    from collector.docker_client import DockerClient
+    client = DockerClient()
+
+    first = client._client()
+    await client.aclose()
+    second = client._client()
+
+    assert first is not second
+    assert first.is_closed
+
+
+@pytest.mark.asyncio
+async def test_aclose_sem_conexao_aberta_nao_lanca():
+    """aclose() antes de qualquer uso de _client() não deve lançar exceção."""
+    from collector.docker_client import DockerClient
+    client = DockerClient()
+
+    await client.aclose()  # não deve lançar

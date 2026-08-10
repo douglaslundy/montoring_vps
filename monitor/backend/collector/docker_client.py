@@ -28,32 +28,45 @@ class DockerClient:
     def __init__(self, socket_path: Optional[str] = None, proxy_url: Optional[str] = None):
         self._socket = socket_path or os.environ.get("DOCKER_SOCKET_PATH", "/var/run/docker.sock")
         self._proxy_url = proxy_url or os.environ.get("DOCKER_PROXY_URL")
+        self._http: Optional[httpx.AsyncClient] = None
 
     def _client(self) -> httpx.AsyncClient:
-        if self._proxy_url:
-            return httpx.AsyncClient(base_url=self._proxy_url, timeout=10.0)
-        return httpx.AsyncClient(
-            transport=httpx.AsyncHTTPTransport(uds=self._socket),
-            base_url="http://localhost",
-            timeout=10.0,
-        )
+        # Reaproveita uma única conexão persistente em vez de abrir (e fechar) um AsyncClient
+        # novo a cada chamada. collect_all() roda a cada 30s e chama isso uma vez por container
+        # (~45 no host) — antes disso, cada ciclo abria ~45 clientes HTTP novos (setup de
+        # transporte + handshake do socket Unix cada vez), o que era o principal suspeito do
+        # scheduler do monitor ficar cronicamente atrasado (ver métricas de 10/08).
+        if self._http is None or self._http.is_closed:
+            if self._proxy_url:
+                self._http = httpx.AsyncClient(base_url=self._proxy_url, timeout=10.0)
+            else:
+                self._http = httpx.AsyncClient(
+                    transport=httpx.AsyncHTTPTransport(uds=self._socket),
+                    base_url="http://localhost",
+                    timeout=10.0,
+                )
+        return self._http
+
+    async def aclose(self) -> None:
+        if self._http is not None and not self._http.is_closed:
+            await self._http.aclose()
 
     async def list_containers(self) -> list[dict]:
-        async with self._client() as c:
-            r = await c.get("/containers/json", params={"all": True})
-            r.raise_for_status()
-            return r.json()
+        c = self._client()
+        r = await c.get("/containers/json", params={"all": True})
+        r.raise_for_status()
+        return r.json()
 
     async def container_stats(self, container_id: str) -> Optional[dict]:
         try:
-            async with self._client() as c:
-                r = await c.get(
-                    f"/containers/{container_id}/stats",
-                    params={"stream": "false"},
-                    timeout=5.0,
-                )
-                r.raise_for_status()
-                stats = r.json()
+            c = self._client()
+            r = await c.get(
+                f"/containers/{container_id}/stats",
+                params={"stream": "false"},
+                timeout=5.0,
+            )
+            r.raise_for_status()
+            stats = r.json()
 
             cpu_percent = calculate_cpu_percent(stats)
 
@@ -97,17 +110,17 @@ class DockerClient:
             return None
 
     async def container_inspect(self, container_id: str) -> dict:
-        async with self._client() as c:
-            r = await c.get(f"/containers/{container_id}/json")
-            r.raise_for_status()
-            return r.json()
+        c = self._client()
+        r = await c.get(f"/containers/{container_id}/json")
+        r.raise_for_status()
+        return r.json()
 
     async def _post_action(self, container_id: str, action: str, params: Optional[dict] = None) -> None:
-        async with self._client() as c:
-            r = await c.post(f"/containers/{container_id}/{action}", params=params or {})
-            if r.status_code == 304:
-                return
-            r.raise_for_status()
+        c = self._client()
+        r = await c.post(f"/containers/{container_id}/{action}", params=params or {})
+        if r.status_code == 304:
+            return
+        r.raise_for_status()
 
     async def start_container(self, container_id: str) -> None:
         await self._post_action(container_id, "start")
@@ -119,47 +132,47 @@ class DockerClient:
         await self._post_action(container_id, "restart", {"t": timeout})
 
     async def remove_container(self, container_id: str) -> None:
-        async with self._client() as c:
-            r = await c.delete(f"/containers/{container_id}")
-            r.raise_for_status()
+        c = self._client()
+        r = await c.delete(f"/containers/{container_id}")
+        r.raise_for_status()
 
     async def list_images(self) -> list[dict]:
-        async with self._client() as c:
-            r = await c.get("/images/json", params={"all": False})
-            r.raise_for_status()
-            return r.json()
+        c = self._client()
+        r = await c.get("/images/json", params={"all": False})
+        r.raise_for_status()
+        return r.json()
 
     async def prune_build_cache(self) -> dict:
-        async with self._client() as c:
-            r = await c.post("/build/prune", params={"all": "true"})
-            r.raise_for_status()
-            return r.json()
+        c = self._client()
+        r = await c.post("/build/prune", params={"all": "true"})
+        r.raise_for_status()
+        return r.json()
 
     async def list_containers_with_size(self) -> list[dict]:
-        async with self._client() as c:
-            r = await c.get("/containers/json", params={"all": True, "size": True})
-            r.raise_for_status()
-            return r.json()
+        c = self._client()
+        r = await c.get("/containers/json", params={"all": True, "size": True})
+        r.raise_for_status()
+        return r.json()
 
     async def get_logs(self, container_id: str, tail: int = 50) -> list[str]:
         try:
-            async with self._client() as c:
-                r = await c.get(
-                    f"/containers/{container_id}/logs",
-                    params={"tail": tail, "stdout": True, "stderr": True, "timestamps": True},
-                    timeout=5.0,
-                )
-                r.raise_for_status()
-                raw = r.content
-                lines: list[str] = []
-                i = 0
-                while i + 8 <= len(raw):
-                    size = int.from_bytes(raw[i + 4:i + 8], "big")
-                    msg = raw[i + 8:i + 8 + size].decode("utf-8", errors="replace").rstrip("\n")
-                    if msg:
-                        lines.append(msg)
-                    i += 8 + size
-                return lines[-tail:]
+            c = self._client()
+            r = await c.get(
+                f"/containers/{container_id}/logs",
+                params={"tail": tail, "stdout": True, "stderr": True, "timestamps": True},
+                timeout=5.0,
+            )
+            r.raise_for_status()
+            raw = r.content
+            lines: list[str] = []
+            i = 0
+            while i + 8 <= len(raw):
+                size = int.from_bytes(raw[i + 4:i + 8], "big")
+                msg = raw[i + 8:i + 8 + size].decode("utf-8", errors="replace").rstrip("\n")
+                if msg:
+                    lines.append(msg)
+                i += 8 + size
+            return lines[-tail:]
         except Exception:
             return []
 

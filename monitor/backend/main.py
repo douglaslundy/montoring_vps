@@ -58,3 +58,9 @@ async def startup():
     init_db()
     from collector.scheduler import start_scheduler
     start_scheduler()
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    from collector.scheduler import docker_client
+    await docker_client.aclose()
