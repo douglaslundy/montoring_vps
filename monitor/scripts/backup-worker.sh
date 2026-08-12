@@ -53,7 +53,12 @@ sqlite3_exec() {
   # de resultado — isso contaminaria toda captura via $(...) neste script
   # (ex: job_linha, pendente), fazendo o worker interpretar "5000" como
   # dado real. Descoberto e corrigido durante a revisao final.
-  sqlite3 -cmd ".timeout 5000" "$DB_PATH" "$1"
+  # 20000ms (era 5000): margem extra depois de achar, em producao, milhares
+  # de "database is locked" acumulados nestes workers — causa raiz real era
+  # table scan sem indice em container_metrics segurando a escrita por mais
+  # que 5s (corrigido em models/database.py), mas um timeout maior aqui e
+  # defesa em profundidade barata contra qualquer pico futuro.
+  sqlite3 -cmd ".timeout 20000" "$DB_PATH" "$1"
 }
 
 # Preenche o array global COMPOSE_FLAGS com os "-f <arquivo>" corretos pra

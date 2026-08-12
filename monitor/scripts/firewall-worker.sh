@@ -41,7 +41,9 @@ sqlite3_exec() {
   # ".timeout" (dot-command) nao emite linha de saida, diferente de
   # "PRAGMA busy_timeout=...", que contaminaria a captura via $(...) — erro
   # ja cometido e corrigido no backup-worker.sh, nao repetir aqui.
-  sqlite3 -cmd ".timeout 5000" "$DB_PATH" "$1"
+  # 20000ms (era 5000): mesma margem extra aplicada em backup-worker.sh,
+  # depois de achar milhares de "database is locked" acumulados em producao.
+  sqlite3 -cmd ".timeout 20000" "$DB_PATH" "$1"
 }
 
 porta_protegida() {
