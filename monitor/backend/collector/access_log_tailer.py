@@ -82,6 +82,28 @@ def _upsert_hourly(session: Session, hour: str, sistema: str) -> None:
         session.add(db_module.AccessLogHourly(hour=hour, sistema=sistema, count=1))
 
 
+def _evaluate_log_stale(session: Session, mtime: float, now: datetime) -> None:
+    """Dispara a regra 'Access Log Parado' se o access.log não é escrito há
+    tempo demais — sinal de que o Traefik perdeu o file descriptor (ex: log
+    rotacionado sem copytruncate) e está escrevendo num inode órfão, invisível
+    neste caminho."""
+    rule = (
+        session.query(db_module.AlertRule)
+        .filter_by(metrica="access_log_stale_minutos", ativo=1)
+        .first()
+    )
+    if rule is None:
+        return
+
+    from api.config import get_config
+    from notifications.alert_engine import _evaluate_rule
+
+    minutos_parado = (now - datetime.utcfromtimestamp(mtime)).total_seconds() / 60
+    vps_name = get_config(session, "server_name", "VPS Monitor")
+    mensagem = f"{rule.nome}: access.log sem novas escritas há {minutos_parado:.0f} min"
+    _evaluate_rule(session, rule, minutos_parado, mensagem, now, vps_name, [])
+
+
 def _process_line(session: Session, line: str) -> None:
     line = line.strip()
     if not line:
@@ -148,6 +170,8 @@ async def tail_access_log() -> None:
                 except Exception:
                     logger.warning("Falha ao processar linha do access log, pulando", exc_info=True)
             new_offset = f.tell()
+
+        _evaluate_log_stale(session, current_stat.st_mtime, datetime.utcnow())
 
         session.commit()
         _save_offset(session, new_offset, current_inode)

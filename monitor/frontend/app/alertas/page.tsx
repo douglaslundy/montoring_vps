@@ -40,7 +40,7 @@ interface AlertRule {
 
 type Tab = 'ativas' | 'historico' | 'regras'
 
-const METRICAS = ['cpu_percent', 'ram_percent', 'disk_percent', 'temperature_c', 'load_1m', 'container_stopped', 'docker_reclaimable_mb']
+const METRICAS = ['cpu_percent', 'ram_percent', 'disk_percent', 'temperature_c', 'load_1m', 'container_stopped', 'docker_reclaimable_mb', 'access_log_stale_minutos']
 const OPERADORES = ['>', '<', '>=', '<=']
 const SEVERIDADES = ['critico', 'aviso', 'info']
 
@@ -52,6 +52,7 @@ const METRICA_LABELS: Record<string, string> = {
   load_1m: 'Load Average 1m',
   container_stopped: 'Container Parado',
   docker_reclaimable_mb: 'Espaço Reaproveitável (Docker)',
+  access_log_stale_minutos: 'Access Log Parado (min sem escrita)',
 }
 
 function elapsed(from: string): string {

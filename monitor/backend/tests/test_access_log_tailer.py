@@ -5,6 +5,15 @@ from datetime import datetime
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _garante_jwt_secret(monkeypatch):
+    # tail_access_log() agora avalia a regra "Access Log Parado" via
+    # api.config.get_config, que importa (transitivamente) api.auth — este
+    # levanta RuntimeError no import se JWT_SECRET nao estiver setado. Mesmo
+    # padrao ja usado em test_projects_api.py.
+    monkeypatch.setenv("JWT_SECRET", "test-secret-32-chars-long-ok-yes")
+
+
 def _traefik_line(client_host="203.0.113.10", host="app2.dlsistemas.com.br", path="/api/pedidos", status=200, when=None):
     when = when or datetime.utcnow()
     return json.dumps({
@@ -193,6 +202,54 @@ async def test_request_path_nulo_nao_interrompe_processamento(test_db, tmp_path,
     from sqlalchemy.orm import Session
     with Session(test_db.engine) as session:
         assert session.query(test_db.AccessLog).count() == 1
+
+
+@pytest.mark.asyncio
+async def test_access_log_parado_dispara_alerta(test_db, tmp_path, monkeypatch):
+    log_file = tmp_path / "access.log"
+    log_file.write_text(_traefik_line() + "\n", encoding="utf-8")
+    monkeypatch.setenv("TRAEFIK_ACCESS_LOG_PATH", str(log_file))
+
+    # Simula um access.log que nao recebe escritas ha mais tempo que o
+    # threshold da regra padrao "Access Log Parado" (360 min). Usa time.time()
+    # (epoch UTC real), nao datetime.utcnow().timestamp() — este ultimo trata
+    # o datetime naive como hora LOCAL, nao UTC, introduzindo um offset igual
+    # ao fuso horario da maquina.
+    import time
+    stale_time = time.time() - (400 * 60)
+    os.utime(log_file, (stale_time, stale_time))
+
+    import collector.access_log_tailer as tailer
+    await tailer.tail_access_log()
+
+    from sqlalchemy.orm import Session
+    with Session(test_db.engine) as session:
+        alerta = (
+            session.query(test_db.AlertLog)
+            .filter_by(metrica="access_log_stale_minutos")
+            .first()
+        )
+    assert alerta is not None
+    assert alerta.resolved_at is None
+
+
+@pytest.mark.asyncio
+async def test_access_log_recente_nao_dispara_alerta(test_db, tmp_path, monkeypatch):
+    log_file = tmp_path / "access.log"
+    log_file.write_text(_traefik_line() + "\n", encoding="utf-8")
+    monkeypatch.setenv("TRAEFIK_ACCESS_LOG_PATH", str(log_file))
+
+    import collector.access_log_tailer as tailer
+    await tailer.tail_access_log()
+
+    from sqlalchemy.orm import Session
+    with Session(test_db.engine) as session:
+        alerta = (
+            session.query(test_db.AlertLog)
+            .filter_by(metrica="access_log_stale_minutos")
+            .first()
+        )
+    assert alerta is None
 
 
 @pytest.mark.asyncio

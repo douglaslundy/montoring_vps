@@ -41,6 +41,9 @@ class MetricsHistory(Base):
     temperature_c = Column(Float)
 
 
+Index("ix_metrics_history_collected_at", MetricsHistory.collected_at)
+
+
 class ContainerMetrics(Base):
     __tablename__ = "container_metrics"
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -57,6 +60,19 @@ class ContainerMetrics(Base):
     restart_count = Column(Integer)
 
 
+# Sem estes indices, toda consulta abaixo faz table scan completo desta
+# tabela (a maior do banco: cresce ~1 linha/container a cada 30s, chega a
+# milhoes de linhas com poucas semanas de retencao) — confirmado em producao
+# via EXPLAIN QUERY PLAN (SCAN container_metrics) e medido em ~0.5-8s por
+# consulta dependendo do cache do SO, repetido por container a cada ciclo do
+# scheduler (30s) e a cada DELETE de limpeza (1x/hora). Causa raiz real do
+# CPU alto do monitor-backend, mais significativa que qualquer bloqueio de
+# I/O sincrono isolado.
+Index("ix_container_metrics_collected_at", ContainerMetrics.collected_at)
+Index("ix_container_metrics_container_id_collected_at", ContainerMetrics.container_id, ContainerMetrics.collected_at)
+Index("ix_container_metrics_container_name_collected_at", ContainerMetrics.container_name, ContainerMetrics.collected_at)
+
+
 class ContainerDiskUsage(Base):
     __tablename__ = "container_disk_usage"
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -65,6 +81,10 @@ class ContainerDiskUsage(Base):
     container_name = Column(String, nullable=False)
     size_rw_mb = Column(Float)
     size_rootfs_mb = Column(Float)
+
+
+Index("ix_container_disk_usage_collected_at", ContainerDiskUsage.collected_at)
+Index("ix_container_disk_usage_container_name_collected_at", ContainerDiskUsage.container_name, ContainerDiskUsage.collected_at)
 
 
 class AlertRule(Base):
@@ -276,6 +296,7 @@ _DEFAULT_RULES = [
     {"nome": "Container Parado", "metrica": "container_stopped", "operador": "==", "threshold": 1, "duracao_minutos": 0, "severidade": "critico", "cooldown_minutos": 0},
     {"nome": "Container em Restart Loop", "metrica": "container_restart_loop", "operador": ">=", "threshold": 3, "duracao_minutos": 10, "severidade": "critico", "cooldown_minutos": 30},
     {"nome": "Espaço em Disco Reaproveitável", "metrica": "docker_reclaimable_mb", "operador": ">", "threshold": 500, "duracao_minutos": 0, "severidade": "aviso", "cooldown_minutos": 1440},
+    {"nome": "Access Log Parado", "metrica": "access_log_stale_minutos", "operador": ">", "threshold": 360, "duracao_minutos": 0, "severidade": "aviso", "cooldown_minutos": 360},
 ]
 
 _DEFAULT_CONFIG = {
@@ -322,6 +343,21 @@ def init_db():
             conn.commit()
         except Exception:
             pass  # Coluna já existe
+        # Base.metadata.create_all() só cria índices em tabelas novas — em
+        # bancos já existentes (produção) as tabelas abaixo já existiam antes
+        # destes índices serem adicionados, então create_all() as ignora
+        # silenciosamente. CREATE INDEX IF NOT EXISTS aqui garante que bancos
+        # antigos recebam os índices num restart, sem exigir migração manual.
+        for stmt in (
+            "CREATE INDEX IF NOT EXISTS ix_metrics_history_collected_at ON metrics_history (collected_at)",
+            "CREATE INDEX IF NOT EXISTS ix_container_metrics_collected_at ON container_metrics (collected_at)",
+            "CREATE INDEX IF NOT EXISTS ix_container_metrics_container_id_collected_at ON container_metrics (container_id, collected_at)",
+            "CREATE INDEX IF NOT EXISTS ix_container_metrics_container_name_collected_at ON container_metrics (container_name, collected_at)",
+            "CREATE INDEX IF NOT EXISTS ix_container_disk_usage_collected_at ON container_disk_usage (collected_at)",
+            "CREATE INDEX IF NOT EXISTS ix_container_disk_usage_container_name_collected_at ON container_disk_usage (container_name, collected_at)",
+        ):
+            conn.execute(text(stmt))
+        conn.commit()
     with Session(engine) as session:
         if session.query(AlertRule).count() == 0:
             for rule in _DEFAULT_RULES:
@@ -346,6 +382,11 @@ def init_db():
             session.add(AlertRule(
                 nome="Container em Restart Loop", metrica="container_restart_loop", operador=">=",
                 threshold=3, duracao_minutos=10, severidade="critico", cooldown_minutos=30,
+            ))
+        if not session.query(AlertRule).filter_by(nome="Access Log Parado").first():
+            session.add(AlertRule(
+                nome="Access Log Parado", metrica="access_log_stale_minutos", operador=">",
+                threshold=360, duracao_minutos=0, severidade="aviso", cooldown_minutos=360,
             ))
         for key, value in _DEFAULT_CONFIG.items():
             if not session.get(Config, key):

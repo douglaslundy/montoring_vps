@@ -20,7 +20,44 @@ def test_wal_mode_ativo(test_db):
 def test_regras_padrao_inseridas(test_db):
     with Session(test_db.engine) as session:
         count = session.query(test_db.AlertRule).count()
-    assert count == 13
+    assert count == 14
+
+
+def test_indices_de_container_metrics_existem(test_db):
+    # Sem estes indices, toda consulta a container_metrics (a maior tabela do
+    # banco, cresce ~1 linha/container a cada 30s) faz table scan completo —
+    # confirmado em producao via EXPLAIN QUERY PLAN e medido em segundos por
+    # consulta. Ver comentario em models/database.py junto da classe.
+    with test_db.engine.connect() as conn:
+        result = conn.execute(text("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='container_metrics'"))
+        indices = {row[0] for row in result}
+    assert "ix_container_metrics_collected_at" in indices
+    assert "ix_container_metrics_container_id_collected_at" in indices
+    assert "ix_container_metrics_container_name_collected_at" in indices
+
+
+def test_consulta_de_restart_loop_usa_indice_nao_table_scan(test_db):
+    # Mesmo padrao de consulta usado por notifications/alert_engine.py
+    # _evaluate_restart_loop(), rodado a cada ciclo do scheduler (30s) por
+    # container.
+    with test_db.engine.connect() as conn:
+        plano = conn.execute(text(
+            "EXPLAIN QUERY PLAN SELECT restart_count FROM container_metrics "
+            "WHERE container_id = 'abc123' AND collected_at >= datetime('now', '-10 minutes') "
+            "ORDER BY collected_at"
+        )).fetchall()
+    detalhes = " ".join(row[3] for row in plano)
+    assert "SCAN container_metrics" not in detalhes
+
+
+def test_delete_de_limpeza_usa_indice_nao_table_scan(test_db):
+    # Mesmo padrao usado por collector/scheduler.py _cleanup(), rodado 1x/hora.
+    with test_db.engine.connect() as conn:
+        plano = conn.execute(text(
+            "EXPLAIN QUERY PLAN DELETE FROM container_metrics WHERE collected_at < datetime('now', '-30 days')"
+        )).fetchall()
+    detalhes = " ".join(row[3] for row in plano)
+    assert "SCAN container_metrics" not in detalhes
 
 def test_insert_metrics_history(test_db):
     from datetime import datetime
