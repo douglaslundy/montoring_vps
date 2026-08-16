@@ -1,9 +1,9 @@
 import asyncio
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytest
 from sqlalchemy.orm import Session
-from models.database import AlertLog, AlertNotification, AlertRule, Config, engine, init_db
+from models.database import AlertLog, AlertNotification, AlertRule, Config, engine, init_db, MetricsHistory
 
 
 @pytest.fixture(autouse=True)
@@ -45,6 +45,38 @@ def add_rule(engine, **kwargs):
 def count_open(engine):
     with Session(engine) as s:
         return s.query(AlertLog).filter(AlertLog.resolved_at.is_(None)).count()
+
+
+def seed_history(engine, valores, *, coluna="load_1m", now=None, intervalo_s=30):
+    """Grava amostras espacadas de intervalo_s terminando em `now`.
+
+    valores[0] eh a amostra MAIS ANTIGA, valores[-1] a mais recente.
+    Com intervalo de 30s (o real do scheduler), N valores cobrem
+    (N-1)*30 segundos de janela.
+    """
+    now = now or datetime.utcnow()
+    with Session(engine) as s:
+        for i, v in enumerate(reversed(valores)):
+            s.add(MetricsHistory(
+                collected_at=now - timedelta(seconds=i * intervalo_s),
+                **{coluna: v},
+            ))
+        s.commit()
+    return now
+
+
+def load_rule(engine, **kwargs):
+    defaults = dict(metrica="load_1m", operador=">", threshold=6.0, duracao_minutos=3)
+    defaults.update(kwargs)
+    return add_rule(engine, **defaults)
+
+
+def sustentada(engine, rule_id, now):
+    from notifications.alert_engine import _condicao_sustentada
+    from models.database import AlertRule
+    with Session(engine) as s:
+        rule = s.get(AlertRule, rule_id)
+        return _condicao_sustentada(s, rule, now)
 
 
 def test_creates_alert_when_threshold_exceeded(fresh_db):
@@ -618,3 +650,56 @@ def test_cpu_alert_grava_contexto_top_projetos(fresh_db):
         log = s.query(AlertLog).filter(AlertLog.resolved_at.is_(None)).first()
     ctx = json.loads(log.contexto)
     assert ctx["top_projetos"][0]["nome"] == "mecanicapro"
+
+
+def test_sustentada_quando_janela_toda_acima(fresh_db):
+    # 7 amostras x 30s = 180s = os 3 min exigidos
+    now = seed_history(fresh_db, [7.0] * 7)
+    rule_id = load_rule(fresh_db)
+    assert sustentada(fresh_db, rule_id, now) is True
+
+
+def test_nao_sustentada_com_queda_no_meio(fresh_db):
+    now = seed_history(fresh_db, [7.0, 7.0, 5.0, 7.0, 7.0, 7.0, 7.0])
+    rule_id = load_rule(fresh_db)
+    assert sustentada(fresh_db, rule_id, now) is False
+
+
+def test_nao_sustentada_sem_amostras(fresh_db):
+    rule_id = load_rule(fresh_db)
+    assert sustentada(fresh_db, rule_id, datetime.utcnow()) is False
+
+
+def test_nao_sustentada_quando_janela_mal_coberta(fresh_db):
+    # Backend recem-subido: so 1 min de dados, todos acima. Nao confirma.
+    now = seed_history(fresh_db, [7.0, 7.0, 7.0])
+    rule_id = load_rule(fresh_db)
+    assert sustentada(fresh_db, rule_id, now) is False
+
+
+def test_sustentada_no_limite_da_tolerancia(fresh_db):
+    # 6 amostras x 30s = 150s (2min30s). A coleta e a cada 30s, entao a
+    # amostra mais antiga dentro de uma janela de 3 min NUNCA tem 180s
+    # exatos — sem tolerancia isso reprovaria sempre.
+    now = seed_history(fresh_db, [7.0] * 6)
+    rule_id = load_rule(fresh_db)
+    assert sustentada(fresh_db, rule_id, now) is True
+
+
+def test_nao_sustentada_com_valor_nulo(fresh_db):
+    now = seed_history(fresh_db, [7.0, 7.0, None, 7.0, 7.0, 7.0, 7.0])
+    rule_id = load_rule(fresh_db)
+    assert sustentada(fresh_db, rule_id, now) is False
+
+
+def test_duracao_zero_dispensa_a_janela(fresh_db):
+    rule_id = load_rule(fresh_db, duracao_minutos=0)
+    assert sustentada(fresh_db, rule_id, datetime.utcnow()) is True
+
+
+def test_metrica_fora_do_metrics_history_dispensa_a_janela(fresh_db):
+    # docker_reclaimable_mb vem do scheduler, access_log_stale_minutos vem do
+    # tailer — nenhum dos dois e gravado no metrics_history. Sem este
+    # fallback, essas regras nunca disparariam.
+    rule_id = load_rule(fresh_db, metrica="docker_reclaimable_mb", duracao_minutos=5)
+    assert sustentada(fresh_db, rule_id, datetime.utcnow()) is True

@@ -6,7 +6,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from models.database import AlertLog, AlertNotification, AlertRule, ContainerDiskUsage, ContainerMetrics, engine
+from models.database import AlertLog, AlertNotification, AlertRule, ContainerDiskUsage, ContainerMetrics, MetricsHistory, engine
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +17,57 @@ _OPERATORS = {
     "<=": lambda v, t: v <= t,
     "==": lambda v, t: v == t,
 }
+
+# Colunas do metrics_history por metrica de regra. Metricas ausentes daqui
+# (docker_reclaimable_mb, access_log_stale_minutos, container_*) nao sao
+# gravadas nessa tabela e portanto nao tem janela para confirmar.
+_METRICA_COLUNA = {
+    "cpu_percent": MetricsHistory.cpu_percent,
+    "ram_percent": MetricsHistory.ram_percent,
+    "disk_percent": MetricsHistory.disk_percent,
+    "swap_percent": MetricsHistory.swap_percent,
+    "temperature_c": MetricsHistory.temperature_c,
+    "load_1m": MetricsHistory.load_1m,
+}
+
+# A coleta roda a cada 30s, entao a amostra mais antiga dentro de uma janela
+# de N minutos tem tipicamente N*60-30 segundos, nunca N*60 exatos. Sem esta
+# folga (~2 ciclos) a checagem de cobertura reprovaria toda janela, sempre.
+_TOLERANCIA_JANELA_S = 60
+
+
+def _condicao_sustentada(session: Session, rule: AlertRule, now: datetime) -> bool:
+    """True se a condicao da regra valeu em TODAS as amostras da janela.
+
+    Substitui o antigo `duracao_minutos`, que era inatingivel: o alerta abria
+    no primeiro cruzamento e resolvia no primeiro nao-cruzamento, entao a
+    janela quase nunca vencia antes do alerta fechar. Ver a spec
+    2026-08-16-alertas-load-historico-design.md.
+    """
+    if rule.duracao_minutos == 0:
+        return True
+    coluna = _METRICA_COLUNA.get(rule.metrica)
+    op = _OPERATORS.get(rule.operador)
+    if coluna is None or op is None:
+        return True
+
+    inicio = now - timedelta(minutes=rule.duracao_minutos)
+    linhas = (
+        session.query(MetricsHistory.collected_at, coluna)
+        .filter(MetricsHistory.collected_at >= inicio)
+        .order_by(MetricsHistory.collected_at)
+        .all()
+    )
+    if not linhas:
+        return False
+
+    # A janela precisa estar coberta por dados: sem isto, um backend que
+    # subiu ha 1 minuto confirmaria com uma amostra so.
+    idade_mais_antiga = (now - linhas[0][0]).total_seconds()
+    if idade_mais_antiga < rule.duracao_minutos * 60 - _TOLERANCIA_JANELA_S:
+        return False
+
+    return all(valor is not None and op(valor, rule.threshold) for _, valor in linhas)
 
 
 def _top_by(containers: list, key: str, n: int = 3) -> list:
