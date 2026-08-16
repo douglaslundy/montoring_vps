@@ -370,7 +370,9 @@ async def _evaluate_container_stopped(session: Session, rule: AlertRule, contain
         container_name = m.group(1)
         if container_name in running_names or container_name not in known_names:
             log.resolved_at = now
-            _notify_resolution(session, log, rule)
+            # Nao anuncia a volta de um alerta cuja queda nunca foi anunciada.
+            if log.last_notified_at is not None:
+                _notify_resolution(session, log, rule)
 
 
 async def _evaluate_restart_loop(session: Session, rule: AlertRule, containers: list, now: datetime, vps_name: str, docker_client=None):
@@ -463,7 +465,9 @@ async def _evaluate_restart_loop(session: Session, rule: AlertRule, containers: 
             continue
         if m.group(1) not in containers_em_loop:
             log.resolved_at = now
-            _notify_resolution(session, log, rule)
+            # Idem: resolucao so fala se houve disparo falado.
+            if log.last_notified_at is not None:
+                _notify_resolution(session, log, rule)
 
 
 async def evaluate(metrics: dict, containers: list, docker_client=None) -> list:

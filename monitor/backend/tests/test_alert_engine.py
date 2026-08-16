@@ -763,3 +763,48 @@ def test_resolucao_de_alerta_nunca_notificado_e_silenciosa_mas_grava_resolved_at
         assert log.resolved_at is not None
     resolucoes = [n for n in get_notifications(fresh_db, log_id) if n.tipo == "resolucao"]
     assert resolucoes == []
+
+
+def test_container_parado_nao_notifica_resolucao_se_nao_notificou_queda(fresh_db):
+    from notifications.alert_engine import evaluate
+    # duracao_minutos=2 faz duration_ok ser falso na criacao: o alerta nasce
+    # calado. Sem a guarda, a volta do container mandaria um "resolvido"
+    # de um alerta que nunca foi anunciado.
+    add_rule(fresh_db, metrica="container_stopped", operador="==", threshold=1,
+             duracao_minutos=2, canal_whatsapp=1, canal_email=0)
+    asyncio.run(evaluate(make_metrics(), [{"name": "nginx", "status": "exited"}]))
+    with Session(fresh_db) as s:
+        log = s.query(AlertLog).first()
+        assert log.last_notified_at is None
+        log_id = log.id
+
+    asyncio.run(evaluate(make_metrics(), [{"name": "nginx", "status": "running"}]))
+
+    with Session(fresh_db) as s:
+        assert s.get(AlertLog, log_id).resolved_at is not None
+    resolucoes = [n for n in get_notifications(fresh_db, log_id) if n.tipo == "resolucao"]
+    assert resolucoes == []
+
+
+def test_restart_loop_nao_notifica_resolucao_se_nao_notificou_disparo(fresh_db):
+    from notifications.alert_engine import evaluate
+    rule_id = add_rule(fresh_db, metrica="container_restart_loop", operador=">=",
+                       threshold=3, duracao_minutos=10, cooldown_minutos=30,
+                       canal_whatsapp=1, canal_email=0)
+    with Session(fresh_db) as s:
+        s.add(AlertLog(
+            rule_id=rule_id, triggered_at=datetime.utcnow(), severidade="critico",
+            metrica="container_restart_loop", valor_no_disparo=3, threshold=3,
+            mensagem="Container 'web' em restart loop (3 reinicios em 10min)",
+            last_notified_at=None,
+        ))
+        s.commit()
+        log_id = s.query(AlertLog).first().id
+
+    # Nenhum container em loop agora -> o alerta aberto deve resolver
+    asyncio.run(evaluate(make_metrics(), []))
+
+    with Session(fresh_db) as s:
+        assert s.get(AlertLog, log_id).resolved_at is not None
+    resolucoes = [n for n in get_notifications(fresh_db, log_id) if n.tipo == "resolucao"]
+    assert resolucoes == []
