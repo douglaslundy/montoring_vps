@@ -1,9 +1,43 @@
 # Progresso do Projeto
 
 ## Última atualização
-2026-08-16 — **Investigação: "alertas de load alto desde sexta" — causa raiz encontrada, 4 camadas. Nenhuma mudança feita ainda (aguardando autorização).**
+2026-08-16 — **Correção do flapping de alerta de Load: 7 tasks implementadas, revisadas e deployadas em produção. Limpeza do host aplicada.**
 
-## Tarefa em andamento — Flapping de alerta de Load (2026-08-16)
+## Tarefa CONCLUÍDA — Alertas sustentados, aviso na subida e histórico com contexto (2026-08-16)
+
+Spec: `docs/superpowers/specs/2026-08-16-alertas-load-historico-design.md` (commit `d52f6ed`).
+Plano: `docs/superpowers/plans/2026-08-16-alertas-load-historico.md` (commit `8b3b984`), 7 tasks TDD via `superpowers:subagent-driven-development`.
+Ledger canônico task a task: `../.superpowers/sdd/2026-08-16-alertas-load-historico/progress.md`.
+
+### O que foi entregue (commits `dcf0805`..`e0754d2`)
+| task | commit | o quê |
+|---|---|---|
+| 1 | `dcf0805` | `_condicao_sustentada` — confirma a janela consultando o `metrics_history`; `_TOLERANCIA_JANELA_S = 60` (~2 ciclos de coleta) porque a amostra mais antiga numa janela de N min tem N*60-30s, nunca N*60 exatos |
+| 2 | `32d4b53` | Ligada no `_evaluate_rule`: alerta só nasce sustentado, notifica a subida no mesmo ciclo em que nasce, resolução só notifica se a subida notificou |
+| 3 | `3488b95` | Mesma guarda de resolução em `_evaluate_container_stopped` e `_evaluate_restart_loop` |
+| 4 | `59abaef` | Regra "Load Alto" 5→3 min, migração condicionada a `== 5` para preservar ajuste manual do usuário |
+| 5 | `fa0f197`, `2e8990a` | `/metrics/history` devolve `companion`+`value2` (load_5m); novo `/metrics/history/annotations` com threshold e disparos; `_regra_primeira_linha` com desempate |
+| 6 | `e0754d2` | `/historico`: linha do limite, marcadores vermelhos nos disparos, série tracejada da média de 5 min |
+
+**Suíte completa: 322 passed** (baseline 293, +29 novos). Nenhum teste antigo alterado.
+
+### Verificado em produção (2026-08-16, pós-deploy)
+- Migração aplicada: `Load Alto | 6.0 | 3 | 30 | ativo=1`.
+- Containers `monitor-backend`/`frontend`/`nginx` up, `Application startup complete`.
+- CPU do `monitor-backend`: 0,25-0,26% em repouso (pico de 11% num único ciclo de coleta de 30s — normal). Referência de 12/08 era 0,26-0,93%.
+- **Risco do plano descartado com medição:** a consulta de janela usa índice (`EXPLAIN QUERY PLAN` → `SEARCH metrics_history USING INDEX ix_metrics_history_collected_at`), 12ms. Custo desprezível.
+- **Host:** `/etc/cron.hourly/free` (`echo 1 > /proc/sys/vm/drop_caches`) e `/etc/cron.hourly/fstrim` removidos. Backup em `/root/backup-cron-hourly-20260816202941` (conteúdo conferido antes do `rm`). `fstrim.timer` do systemd segue `enabled`, próximo disparo 17/08 00:21 — o TRIM continua acontecendo, semanal em vez de horário.
+
+### Decisão de design tomada durante a implementação (não estava na spec)
+A `ReferenceLine` do threshold usa `var(--muted)`, **não** `var(--warning)` como a spec sugeria: `--warning` (#fb8c00) é praticamente a mesma cor da série de Load (#f97316) e do `--accent` (#f5a623) da série de CPU — a linha do limite sumiria dentro da própria série. Neutro lê como régua; vermelho (`--danger`) fica reservado aos marcadores de evento.
+
+### Pendências desta tarefa
+- **Verificação de 24h ainda não feita** (Step 9 do plano): confirmar no `alert_log` que os alertas de `load_1m` caíram para ~4/semana e que **todo** alerta criado tem `last_notified_at IS NOT NULL`. Se aparecer alerta com `last_notified_at` nulo, há caminho não coberto — investigar antes de considerar encerrado.
+- Confirmação visual da `/historico` pelo usuário em https://monitor.dlsistemas.com.br/historico.
+
+---
+
+## Investigação que originou a tarefa — Flapping de alerta de Load (2026-08-16)
 
 ### Sintoma real (medido, não relatado)
 O usuário NÃO está recebendo alertas de disparo. Está recebendo mensagens de **"✅ ALERTA RESOLVIDO"** no WhatsApp cujo corpo contém o texto `Load Alto: 7.3 > 6.0` — lê-se como alerta de load.

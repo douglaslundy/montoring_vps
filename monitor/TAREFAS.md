@@ -4,12 +4,10 @@ Ordem definida pelo usuário em 2026-08-16. Fazer uma de cada vez, na ordem.
 
 ---
 
-## 0. Alertas de load: flapping + aviso na subida + histórico de picos — EM ANDAMENTO
-Ver `PROGRESSO.md` ("Tarefa em andamento"). Decisões já fechadas com o usuário:
-- Motor de alertas: janela consultada do `metrics_history` (abordagem A), sem estado novo.
-- Regra "Load Alto": limite 6.0, confirmação de **3 minutos**.
-- `/historico`: linha do limite + marcadores de alerta disparado + `load_5m` junto do `load_1m`.
-- Host: remover `/etc/cron.hourly/free` e `/etc/cron.hourly/fstrim` (autorizado).
+## 0. Alertas de load: flapping + aviso na subida + histórico de picos — ✅ CONCLUÍDA (2026-08-16)
+Implementada, revisada task a task, 322 testes passando, deployada em produção, e os dois scripts do host removidos com backup. Detalhes e medições em `PROGRESSO.md`.
+
+Resta só a verificação de 24h (contagem de alertas e ausência de alerta silencioso no `alert_log`) e a conferência visual da `/historico` pelo usuário.
 
 ---
 
