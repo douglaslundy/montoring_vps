@@ -3,7 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Query, Depends
 from sqlalchemy.orm import Session
 from api.time_buckets import daily_buckets, hourly_buckets
-from models.database import ContainerMetrics, MetricsHistory, get_session
+from models.database import AlertLog, AlertRule, ContainerMetrics, MetricsHistory, get_session
 from api.auth import verify_token_header
 from collector.scheduler import get_last_metrics
 
@@ -19,6 +19,10 @@ METRIC_MAP = {
     "net_tx": "net_tx_bytes_s",
     "temperature": "temperature_c",
 }
+
+# Metricas que ganham uma segunda serie no grafico. load_5m ao lado de
+# load_1m deixa visivel a diferenca entre um pico curto e uma tendencia real.
+METRIC_COMPANION = {"load": "load_5m"}
 
 
 @metrics_router.get("/metrics/current")
@@ -44,12 +48,74 @@ def metrics_history(
         .all()
     )
 
+    companion = METRIC_COMPANION.get(metric)
+
+    def ponto(r):
+        p = {"ts": r.collected_at.isoformat() + "Z", "value": getattr(r, col)}
+        if companion:
+            p["value2"] = getattr(r, companion)
+        return p
+
     return {
         "metric": metric,
         "hours": hours,
-        "data": [
-            {"ts": r.collected_at.isoformat() + "Z", "value": getattr(r, col)}
-            for r in rows
+        "companion": companion,
+        "data": [ponto(r) for r in rows],
+    }
+
+
+def _regra_primeira_linha(regras: list):
+    """A primeira linha que o usuario cruza: menor threshold para >/>=,
+    maior para </<=. Empate ou operadores mistos -> menor id."""
+    if not regras:
+        return None
+    maiores = [r for r in regras if r.operador in (">", ">=")]
+    menores = [r for r in regras if r.operador in ("<", "<=")]
+    if maiores and not menores:
+        return min(maiores, key=lambda r: (r.threshold, r.id))
+    if menores and not maiores:
+        return max(menores, key=lambda r: (r.threshold, -r.id))
+    return min(regras, key=lambda r: r.id)
+
+
+@metrics_router.get("/metrics/history/annotations")
+def metrics_history_annotations(
+    metric: str = Query("cpu"),
+    hours: int = Query(24),
+    auth=Depends(verify_token_header),
+    session: Session = Depends(get_session),
+):
+    """Threshold da regra ativa e disparos do periodo, para desenhar a linha
+    d'agua e os marcadores no grafico de /historico."""
+    hours = min(hours, 168)
+    col = METRIC_MAP.get(metric)
+    if col is None:
+        return {"metric": metric, "regra": None, "threshold": None, "alertas": []}
+
+    cutoff = datetime.utcnow() - timedelta(hours=hours)
+    regras = session.query(AlertRule).filter(
+        AlertRule.ativo == 1, AlertRule.metrica == col
+    ).all()
+    regra = _regra_primeira_linha(regras)
+
+    alertas = (
+        session.query(AlertLog)
+        .filter(AlertLog.metrica == col, AlertLog.triggered_at >= cutoff)
+        .order_by(AlertLog.triggered_at.asc())
+        .all()
+    )
+    return {
+        "metric": metric,
+        "regra": regra.nome if regra else None,
+        "threshold": regra.threshold if regra else None,
+        "alertas": [
+            {
+                "triggered_at": a.triggered_at.isoformat() + "Z",
+                "resolved_at": a.resolved_at.isoformat() + "Z" if a.resolved_at else None,
+                "valor": a.valor_no_disparo,
+                "severidade": a.severidade,
+            }
+            for a in alertas
         ],
     }
 

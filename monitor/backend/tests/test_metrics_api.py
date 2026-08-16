@@ -118,3 +118,67 @@ def test_container_history_sem_autenticacao_401():
     import main
     client = TestClient(main.app)
     assert client.get("/api/metrics/container-history?container_name=x").status_code == 401
+
+
+def test_history_de_load_inclui_serie_companheira(auth_client):
+    client, db = auth_client
+    with Session(db.engine) as session:
+        session.add(db.MetricsHistory(collected_at=datetime.utcnow(), load_1m=7.0, load_5m=5.5))
+        session.commit()
+    r = client.get("/api/metrics/history?metric=load&hours=1")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["companion"] == "load_5m"
+    assert body["data"][0]["value"] == 7.0
+    assert body["data"][0]["value2"] == 5.5
+
+
+def test_history_de_cpu_nao_tem_companheira(auth_client):
+    client, _ = auth_client
+    r = client.get("/api/metrics/history?metric=cpu&hours=1")
+    assert r.json()["companion"] is None
+
+
+def test_annotations_devolve_threshold_e_alertas(auth_client):
+    client, db = auth_client
+    with Session(db.engine) as session:
+        session.add(db.AlertRule(nome="Load Alto", metrica="load_1m", operador=">",
+                        threshold=6.0, duracao_minutos=3, severidade="aviso",
+                        cooldown_minutos=30, ativo=1))
+        session.add(db.AlertLog(triggered_at=datetime.utcnow(), severidade="aviso",
+                       metrica="load_1m", valor_no_disparo=7.3, threshold=6.0,
+                       mensagem="Load Alto: 7.3 > 6.0"))
+        session.commit()
+    body = client.get("/api/metrics/history/annotations?metric=load&hours=24").json()
+    assert body["threshold"] == 6.0
+    assert body["regra"] == "Load Alto"
+    assert len(body["alertas"]) == 1
+    assert body["alertas"][0]["valor"] == 7.3
+
+
+def test_annotations_sem_regra_devolve_null(auth_client):
+    client, _ = auth_client
+    body = client.get("/api/metrics/history/annotations?metric=net_rx&hours=24").json()
+    assert body["threshold"] is None
+    assert body["alertas"] == []
+
+
+def test_annotations_escolhe_a_primeira_linha_que_o_usuario_cruza(auth_client):
+    client, db = auth_client
+    with Session(db.engine) as session:
+        session.add(db.AlertRule(nome="CPU Critica", metrica="cpu_percent", operador=">",
+                        threshold=95.0, duracao_minutos=2, severidade="critico",
+                        cooldown_minutos=15, ativo=1))
+        session.add(db.AlertRule(nome="CPU Alta", metrica="cpu_percent", operador=">",
+                        threshold=80.0, duracao_minutos=5, severidade="aviso",
+                        cooldown_minutos=30, ativo=1))
+        session.commit()
+    body = client.get("/api/metrics/history/annotations?metric=cpu&hours=24").json()
+    assert body["threshold"] == 80.0  # a menor, para operador ">"
+
+
+def test_annotations_sem_autenticacao_401():
+    from fastapi.testclient import TestClient
+    import main
+    client = TestClient(main.app)
+    assert client.get("/api/metrics/history/annotations?metric=cpu").status_code == 401
