@@ -703,3 +703,63 @@ def test_metrica_fora_do_metrics_history_dispensa_a_janela(fresh_db):
     # fallback, essas regras nunca disparariam.
     rule_id = load_rule(fresh_db, metrica="docker_reclaimable_mb", duracao_minutos=5)
     assert sustentada(fresh_db, rule_id, datetime.utcnow()) is True
+
+
+def test_pico_de_um_ciclo_nao_cria_alerta(fresh_db):
+    # O bug original: um blip de 30s virava AlertLog e, no ciclo seguinte,
+    # uma notificacao de "resolvido". 109 dos 111 alertas de load em 8 dias
+    # de producao foram exatamente isto.
+    from notifications.alert_engine import evaluate
+    seed_history(fresh_db, [7.0])  # so a amostra do pico
+    load_rule(fresh_db)
+    asyncio.run(evaluate(make_metrics(load=7.0), []))
+    assert count_open(fresh_db) == 0
+
+
+def test_condicao_sustentada_cria_alerta_e_notifica_a_subida(fresh_db):
+    from notifications.alert_engine import evaluate
+    seed_history(fresh_db, [7.0] * 7)
+    load_rule(fresh_db, canal_whatsapp=1, canal_email=0)
+    asyncio.run(evaluate(make_metrics(load=7.0), []))
+    assert count_open(fresh_db) == 1
+    with Session(fresh_db) as s:
+        log = s.query(AlertLog).filter(AlertLog.resolved_at.is_(None)).first()
+        assert log.last_notified_at is not None
+    disparos = [n for n in get_notifications(fresh_db, log.id) if n.tipo == "disparo"]
+    assert len(disparos) == 1
+
+
+def test_resolucao_de_alerta_notificado_notifica(fresh_db):
+    from notifications.alert_engine import evaluate
+    seed_history(fresh_db, [7.0] * 7)
+    load_rule(fresh_db, canal_whatsapp=1, canal_email=0)
+    asyncio.run(evaluate(make_metrics(load=7.0), []))
+    with Session(fresh_db) as s:
+        log_id = s.query(AlertLog).first().id
+    asyncio.run(evaluate(make_metrics(load=2.0), []))
+    resolucoes = [n for n in get_notifications(fresh_db, log_id) if n.tipo == "resolucao"]
+    assert len(resolucoes) == 1
+
+
+def test_resolucao_de_alerta_nunca_notificado_e_silenciosa_mas_grava_resolved_at(fresh_db):
+    """Alerta deixado aberto pelo codigo ANTIGO (last_notified_at NULL) nao
+    pode gerar um 'resolvido' no deploy. resolved_at ainda tem que ser
+    gravado — a tela de historico nao pode mentir sobre o estado."""
+    from notifications.alert_engine import evaluate
+    rule_id = load_rule(fresh_db, canal_whatsapp=1, canal_email=0)
+    with Session(fresh_db) as s:
+        s.add(AlertLog(
+            rule_id=rule_id, triggered_at=datetime.utcnow(), severidade="aviso",
+            metrica="load_1m", valor_no_disparo=7.0, threshold=6.0,
+            mensagem="Load Alto: 7.0 > 6.0", last_notified_at=None,
+        ))
+        s.commit()
+        log_id = s.query(AlertLog).first().id
+
+    asyncio.run(evaluate(make_metrics(load=2.0), []))
+
+    with Session(fresh_db) as s:
+        log = s.get(AlertLog, log_id)
+        assert log.resolved_at is not None
+    resolucoes = [n for n in get_notifications(fresh_db, log_id) if n.tipo == "resolucao"]
+    assert resolucoes == []

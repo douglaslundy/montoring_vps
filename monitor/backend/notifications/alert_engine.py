@@ -186,6 +186,11 @@ def _evaluate_rule(session: Session, rule: AlertRule, value: float, mensagem: st
     )
 
     if condition_true and open_log is None:
+        # A janela e confirmada ANTES de abrir o alerta. Assim o alerta so
+        # existe quando a duracao ja foi cumprida — e por isso ele pode
+        # notificar a subida no mesmo ciclo em que nasce.
+        if not _condicao_sustentada(session, rule, now):
+            return
         contexto = extra_context if extra_context is not None else _build_metric_context(rule.metrica, containers, session)
         open_log = AlertLog(
             rule_id=rule.id,
@@ -202,22 +207,19 @@ def _evaluate_rule(session: Session, rule: AlertRule, value: float, mensagem: st
         session.flush()  # garante open_log.id para o FK de AlertNotification
 
     if condition_true and open_log is not None:
-        # Verifica se deve notificar (duracao_minutos atingida e cooldown passou).
-        # Avaliado também na criação: duracao_minutos=0 já satisfaz duration_ok
-        # de imediato, então o alerta notifica no mesmo ciclo em que é criado
-        # (antes bug: só notificava a partir do 2º ciclo do alerta aberto).
-        duration_ok = rule.duracao_minutos == 0 or (
-            (now - open_log.triggered_at).total_seconds() / 60 >= rule.duracao_minutos
-        )
         cooldown_ok = (
             open_log.last_notified_at is None or
             (now - open_log.last_notified_at).total_seconds() / 60 >= rule.cooldown_minutos
         )
-        if duration_ok and cooldown_ok:
+        if cooldown_ok:
             _notify_alert(session, open_log, rule, now)
     elif not condition_true and open_log is not None:
         open_log.resolved_at = now
-        _notify_resolution(session, open_log, rule)
+        # So fala da resolucao se chegou a falar da subida. Sem esta guarda,
+        # todo blip virava uma mensagem "ALERTA RESOLVIDO — Load Alto: 7.3 >
+        # 6.0" para um alerta que nunca foi anunciado.
+        if open_log.last_notified_at is not None:
+            _notify_resolution(session, open_log, rule)
 
 
 def _notify_alert(session: Session, log: AlertLog, rule: AlertRule, now: datetime):
