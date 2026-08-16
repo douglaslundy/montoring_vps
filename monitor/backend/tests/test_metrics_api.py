@@ -177,6 +177,57 @@ def test_annotations_escolhe_a_primeira_linha_que_o_usuario_cruza(auth_client):
     assert body["threshold"] == 80.0  # a menor, para operador ">"
 
 
+# net_rx/net_tx sao as unicas metricas de METRIC_MAP sem regra padrao
+# semeada por init_db() (ver models.database._DEFAULT_RULES) — usadas aqui
+# para testar os ramos de _regra_primeira_linha isolados, sem uma regra
+# default de outro operador entrando na mistura sem querer.
+
+
+def test_annotations_operador_menor_escolhe_a_maior_threshold(auth_client):
+    client, db = auth_client
+    with Session(db.engine) as session:
+        session.add(db.AlertRule(nome="Net RX Baixo", metrica="net_rx_bytes_s", operador="<",
+                        threshold=1000.0, duracao_minutos=5, severidade="aviso",
+                        cooldown_minutos=30, ativo=1))
+        session.add(db.AlertRule(nome="Net RX Muito Baixo", metrica="net_rx_bytes_s", operador="<",
+                        threshold=2000.0, duracao_minutos=5, severidade="critico",
+                        cooldown_minutos=15, ativo=1))
+        session.commit()
+    body = client.get("/api/metrics/history/annotations?metric=net_rx&hours=24").json()
+    assert body["threshold"] == 2000.0  # a maior, para operador "<" (primeira cruzada descendo)
+    assert body["regra"] == "Net RX Muito Baixo"
+
+
+def test_annotations_operador_menor_empate_de_threshold_escolhe_menor_id(auth_client):
+    client, db = auth_client
+    with Session(db.engine) as session:
+        session.add(db.AlertRule(nome="Net TX Baixo A", metrica="net_tx_bytes_s", operador="<",
+                        threshold=500.0, duracao_minutos=5, severidade="aviso",
+                        cooldown_minutos=30, ativo=1))
+        session.add(db.AlertRule(nome="Net TX Baixo B", metrica="net_tx_bytes_s", operador="<",
+                        threshold=500.0, duracao_minutos=10, severidade="critico",
+                        cooldown_minutos=15, ativo=1))
+        session.commit()
+    body = client.get("/api/metrics/history/annotations?metric=net_tx&hours=24").json()
+    assert body["threshold"] == 500.0
+    assert body["regra"] == "Net TX Baixo A"  # empate de threshold -> menor id
+
+
+def test_annotations_operadores_mistos_escolhe_menor_id(auth_client):
+    client, db = auth_client
+    with Session(db.engine) as session:
+        session.add(db.AlertRule(nome="Net RX Alto", metrica="net_rx_bytes_s", operador=">",
+                        threshold=8000.0, duracao_minutos=5, severidade="critico",
+                        cooldown_minutos=15, ativo=1))
+        session.add(db.AlertRule(nome="Net RX Baixo", metrica="net_rx_bytes_s", operador="<",
+                        threshold=100.0, duracao_minutos=5, severidade="aviso",
+                        cooldown_minutos=30, ativo=1))
+        session.commit()
+    body = client.get("/api/metrics/history/annotations?metric=net_rx&hours=24").json()
+    assert body["regra"] == "Net RX Alto"  # operadores mistos -> fallback pelo menor id
+    assert body["threshold"] == 8000.0
+
+
 def test_annotations_sem_autenticacao_401():
     from fastapi.testclient import TestClient
     import main
