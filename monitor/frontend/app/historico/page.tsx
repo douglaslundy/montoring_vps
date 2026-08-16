@@ -6,7 +6,8 @@ import api from '../../lib/api';
 type Range = '1h' | '6h' | '24h' | '7d';
 type Metric = 'cpu' | 'ram' | 'disk' | 'net_rx' | 'net_tx' | 'load' | 'temperature';
 
-interface Point { ts: string; value: number | null; }
+interface Point { ts: string; value: number | null; value2?: number | null; }
+interface Alerta { triggered_at: string; resolved_at: string | null; valor: number; severidade: string; }
 
 const RANGES: { value: Range; label: string }[] = [
   { value: '1h', label: '1 hora' },
@@ -40,6 +41,10 @@ export default function HistoricoPage() {
   const [metric, setMetric] = useState<Metric>('cpu');
   const [data, setData]     = useState<Point[]>([]);
   const [loading, setLoading] = useState(false);
+  const [threshold, setThreshold] = useState<number | null>(null);
+  const [regraNome, setRegraNome] = useState<string | null>(null);
+  const [alertas, setAlertas] = useState<Alerta[]>([]);
+  const [companion, setCompanion] = useState<string | null>(null);
 
   const current = METRICS.find(m => m.value === metric)!;
 
@@ -48,9 +53,18 @@ export default function HistoricoPage() {
     try {
       const hoursMap: Record<string, number> = { '1h': 1, '6h': 6, '24h': 24, '7d': 168 };
       const hours = hoursMap[range] ?? 24;
-      const r = await api.get(`/metrics/history?metric=${metric}&hours=${hours}`);
-      setData(r.data.data ?? []);
-    } catch { setData([]); }
+      const [serie, anot] = await Promise.all([
+        api.get(`/metrics/history?metric=${metric}&hours=${hours}`),
+        api.get(`/metrics/history/annotations?metric=${metric}&hours=${hours}`),
+      ]);
+      setData(serie.data.data ?? []);
+      setCompanion(serie.data.companion ?? null);
+      setThreshold(anot.data.threshold ?? null);
+      setRegraNome(anot.data.regra ?? null);
+      setAlertas(anot.data.alertas ?? []);
+    } catch {
+      setData([]); setCompanion(null); setThreshold(null); setRegraNome(null); setAlertas([]);
+    }
     finally { setLoading(false); }
   }, [range, metric]);
 
@@ -112,13 +126,29 @@ export default function HistoricoPage() {
           {loading && <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 10, fontWeight: 400 }}>Carregando...</span>}
         </div>
         {data.length > 0 ? (
-          <LineChart data={data} color={current.color} unit={current.unit} height={300} />
+          <LineChart
+            data={data}
+            color={current.color}
+            unit={current.unit}
+            height={300}
+            threshold={threshold}
+            thresholdLabel={regraNome ? `${regraNome} (${threshold})` : undefined}
+            alertRanges={alertas.map(a => ({ start: a.triggered_at, end: a.resolved_at }))}
+            series2Label={companion === 'load_5m' ? 'média 5 min' : undefined}
+          />
         ) : (
           <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)' }}>
             {loading ? 'Carregando dados...' : 'Sem dados para o período selecionado'}
           </div>
         )}
       </div>
+
+      {(threshold != null || alertas.length > 0) && (
+        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 16 }}>
+          {threshold != null && <>Linha tracejada = limite do alerta. </>}
+          {alertas.length > 0 && <>Pontos vermelhos = alerta disparado ({alertas.length} no período).</>}
+        </div>
+      )}
 
       {/* Estatísticas */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14 }}>
