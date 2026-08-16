@@ -399,3 +399,36 @@ def test_insert_project_delete_request(test_db):
     assert fetched.snapshot_arquivo == "20260721T140000Z.tar.gz"
     assert fetched.status == "pending"
     assert "vps-monitor-mecanicapro.yml" in fetched.rotas_traefik_selecionadas
+
+
+def test_regra_load_alto_usa_confirmacao_de_3_minutos(test_db):
+    with Session(test_db.engine) as session:
+        regra = session.query(test_db.AlertRule).filter_by(nome="Load Alto").first()
+    assert regra.duracao_minutos == 3
+
+
+def test_migracao_ajusta_load_alto_de_5_para_3(test_db):
+    # Banco de producao nasceu com 5, que na pratica nunca era atingido.
+    with Session(test_db.engine) as session:
+        regra = session.query(test_db.AlertRule).filter_by(nome="Load Alto").first()
+        regra.duracao_minutos = 5
+        session.commit()
+
+    test_db.init_db()
+
+    with Session(test_db.engine) as session:
+        regra = session.query(test_db.AlertRule).filter_by(nome="Load Alto").first()
+    assert regra.duracao_minutos == 3
+
+
+def test_migracao_preserva_ajuste_manual_do_usuario(test_db):
+    with Session(test_db.engine) as session:
+        regra = session.query(test_db.AlertRule).filter_by(nome="Load Alto").first()
+        regra.duracao_minutos = 7
+        session.commit()
+
+    test_db.init_db()
+
+    with Session(test_db.engine) as session:
+        regra = session.query(test_db.AlertRule).filter_by(nome="Load Alto").first()
+    assert regra.duracao_minutos == 7

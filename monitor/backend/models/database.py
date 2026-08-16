@@ -292,7 +292,7 @@ _DEFAULT_RULES = [
     {"nome": "Disco Alto", "metrica": "disk_percent", "operador": ">", "threshold": 80, "duracao_minutos": 0, "severidade": "aviso", "cooldown_minutos": 120},
     {"nome": "Disco Crítico", "metrica": "disk_percent", "operador": ">", "threshold": 90, "duracao_minutos": 0, "severidade": "critico", "cooldown_minutos": 60},
     {"nome": "Temperatura Alta", "metrica": "temperature_c", "operador": ">", "threshold": 75, "duracao_minutos": 5, "severidade": "aviso", "cooldown_minutos": 30},
-    {"nome": "Load Alto", "metrica": "load_1m", "operador": ">", "threshold": 6.0, "duracao_minutos": 5, "severidade": "aviso", "cooldown_minutos": 30},
+    {"nome": "Load Alto", "metrica": "load_1m", "operador": ">", "threshold": 6.0, "duracao_minutos": 3, "severidade": "aviso", "cooldown_minutos": 30},
     {"nome": "Container Parado", "metrica": "container_stopped", "operador": "==", "threshold": 1, "duracao_minutos": 0, "severidade": "critico", "cooldown_minutos": 0},
     {"nome": "Container em Restart Loop", "metrica": "container_restart_loop", "operador": ">=", "threshold": 3, "duracao_minutos": 10, "severidade": "critico", "cooldown_minutos": 30},
     {"nome": "Espaço em Disco Reaproveitável", "metrica": "docker_reclaimable_mb", "operador": ">", "threshold": 500, "duracao_minutos": 0, "severidade": "aviso", "cooldown_minutos": 1440},
@@ -388,6 +388,15 @@ def init_db():
                 nome="Access Log Parado", metrica="access_log_stale_minutos", operador=">",
                 threshold=360, duracao_minutos=0, severidade="aviso", cooldown_minutos=360,
             ))
+        # "Load Alto" nasceu com duracao_minutos=5, inatingivel na pratica:
+        # em 7 dias de producao nenhum episodio acima do threshold passou de
+        # 3 minutos, entao a regra nunca notificava a subida. 3 min corta 96%
+        # do ruido (109 -> 4 alertas na mesma janela) sem virar silencio.
+        # So aplica se ainda estiver no default antigo, para nao sobrescrever
+        # ajuste feito pelo usuario na tela de regras.
+        regra_load = session.query(AlertRule).filter_by(nome="Load Alto").first()
+        if regra_load is not None and regra_load.duracao_minutos == 5:
+            regra_load.duracao_minutos = 3
         for key, value in _DEFAULT_CONFIG.items():
             if not session.get(Config, key):
                 session.add(Config(key=key, value=value))
