@@ -228,6 +228,54 @@ def test_annotations_operadores_mistos_escolhe_menor_id(auth_client):
     assert body["threshold"] == 8000.0
 
 
+def test_annotations_alerta_iniciado_antes_da_janela_e_ainda_aberto_entra(auth_client):
+    # Um alerta que comecou antes do cutoff mas continua aberto cobre parte
+    # da janela visivel — filtrar so por triggered_at >= cutoff escondia esse
+    # incidente em curso (ex: "Disco Alto" aberto ha dias, sem marcador na
+    # janela de 1h selecionada pelo usuario).
+    client, db = auth_client
+    now = datetime.utcnow()
+    with Session(db.engine) as session:
+        session.add(db.AlertLog(
+            triggered_at=now - timedelta(hours=5), severidade="aviso",
+            metrica="disk_percent", valor_no_disparo=85.0, threshold=80.0,
+            mensagem="Disco Alto: 85.0 > 80.0", resolved_at=None,
+        ))
+        session.commit()
+    body = client.get("/api/metrics/history/annotations?metric=disk&hours=1").json()
+    assert len(body["alertas"]) == 1
+    assert body["alertas"][0]["valor"] == 85.0
+
+
+def test_annotations_alerta_resolvido_inteiramente_antes_da_janela_nao_entra(auth_client):
+    client, db = auth_client
+    now = datetime.utcnow()
+    with Session(db.engine) as session:
+        session.add(db.AlertLog(
+            triggered_at=now - timedelta(hours=5), severidade="aviso",
+            metrica="disk_percent", valor_no_disparo=85.0, threshold=80.0,
+            mensagem="Disco Alto: 85.0 > 80.0", resolved_at=now - timedelta(hours=4),
+        ))
+        session.commit()
+    body = client.get("/api/metrics/history/annotations?metric=disk&hours=1").json()
+    assert body["alertas"] == []
+
+
+def test_annotations_metrica_invalida_cai_para_cpu_como_history(auth_client):
+    # Mesmo fallback do /metrics/history (METRIC_MAP.get(metric, "cpu_percent")):
+    # os dois endpoints tem que concordar sobre metrica desconhecida, senao a
+    # pagina desenha a serie de CPU (fallback de /history) sem nenhum
+    # threshold correspondente (null vindo de /annotations). init_db() ja
+    # semeia a regra padrao "CPU Alta" (threshold=80), entao uma metrica
+    # desconhecida deve devolver exatamente o mesmo threshold/regra que
+    # metric=cpu devolveria.
+    client, _ = auth_client
+    esperado = client.get("/api/metrics/history/annotations?metric=cpu&hours=1").json()
+    body = client.get("/api/metrics/history/annotations?metric=inexistente&hours=1").json()
+    assert body["threshold"] == esperado["threshold"] == 80.0
+    assert body["regra"] == esperado["regra"] == "CPU Alta"
+
+
 def test_annotations_sem_autenticacao_401():
     from fastapi.testclient import TestClient
     import main

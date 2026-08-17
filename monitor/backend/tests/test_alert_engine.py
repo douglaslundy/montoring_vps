@@ -808,3 +808,32 @@ def test_restart_loop_nao_notifica_resolucao_se_nao_notificou_disparo(fresh_db):
         assert s.get(AlertLog, log_id).resolved_at is not None
     resolucoes = [n for n in get_notifications(fresh_db, log_id) if n.tipo == "resolucao"]
     assert resolucoes == []
+
+
+def test_get_config_falhando_nao_deixa_alerta_aberto_com_last_notified_at_nulo(fresh_db, monkeypatch):
+    """As chamadas a get_config() no comeco de _notify_alert rodavam fora de
+    qualquer try: uma excecao ali era engolida pelo except-por-regra em
+    evaluate(), e o commit seguinte persistia um AlertLog ja criado com
+    last_notified_at NULL — o alerta mudo que este motor existe para
+    eliminar (ver M2 da revisao final)."""
+    from notifications.alert_engine import evaluate
+
+    def get_config_com_falha(session, key, default=""):
+        # So falha nas chamadas de dentro de _notify_alert (smtp_enabled /
+        # evolution_enabled) — a chamada de "server_name" em evaluate() tem
+        # que continuar funcionando, senao o teste nao exercita o caminho
+        # do bug (excecao especifica do _notify_alert).
+        if key in ("smtp_enabled", "evolution_enabled"):
+            raise RuntimeError("falha ao ler config")
+        return default
+
+    monkeypatch.setattr("api.config.get_config", get_config_com_falha)
+    add_rule(fresh_db, threshold=80.0, metrica="cpu_percent", operador=">",
+             duracao_minutos=0, canal_whatsapp=1, canal_email=0)
+
+    asyncio.run(evaluate(make_metrics(cpu=90.0), []))
+
+    with Session(fresh_db) as s:
+        log = s.query(AlertLog).filter(AlertLog.resolved_at.is_(None)).first()
+        assert log is not None
+        assert log.last_notified_at is not None

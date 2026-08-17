@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import APIRouter, Query, Depends
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from api.time_buckets import daily_buckets, hourly_buckets
 from models.database import AlertLog, AlertRule, ContainerMetrics, MetricsHistory, get_session
@@ -88,9 +89,11 @@ def metrics_history_annotations(
     """Threshold da regra ativa e disparos do periodo, para desenhar a linha
     d'agua e os marcadores no grafico de /historico."""
     hours = min(hours, 168)
-    col = METRIC_MAP.get(metric)
-    if col is None:
-        return {"metric": metric, "regra": None, "threshold": None, "alertas": []}
+    # Mesmo fallback do /metrics/history (METRIC_MAP.get(metric, "cpu_percent")):
+    # para uma metrica desconhecida os dois endpoints agora concordam — a serie
+    # mostrada e as anotacoes (threshold/alertas) sao as mesmas (CPU), em vez
+    # de uma serie de CPU desacompanhada de um threshold nulo.
+    col = METRIC_MAP.get(metric, "cpu_percent")
 
     cutoff = datetime.utcnow() - timedelta(hours=hours)
     regras = session.query(AlertRule).filter(
@@ -98,9 +101,17 @@ def metrics_history_annotations(
     ).all()
     regra = _regra_primeira_linha(regras)
 
+    # Sobreposicao com a janela, nao inicio dentro dela: um alerta que comecou
+    # antes do cutoff e continua aberto (ou so resolveu depois do cutoff) cobre
+    # parte da janela visivel e precisa aparecer. Filtrar so por
+    # `triggered_at >= cutoff` escondia qualquer incidente em curso que tivesse
+    # comecado antes da janela selecionada.
     alertas = (
         session.query(AlertLog)
-        .filter(AlertLog.metrica == col, AlertLog.triggered_at >= cutoff)
+        .filter(
+            AlertLog.metrica == col,
+            or_(AlertLog.resolved_at.is_(None), AlertLog.resolved_at >= cutoff),
+        )
         .order_by(AlertLog.triggered_at.asc())
         .all()
     )

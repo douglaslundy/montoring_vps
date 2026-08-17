@@ -223,38 +223,50 @@ def _evaluate_rule(session: Session, rule: AlertRule, value: float, mensagem: st
 
 
 def _notify_alert(session: Session, log: AlertLog, rule: AlertRule, now: datetime):
-    """Dispara notificação de alerta (email e/ou whatsapp) e grava cada tentativa em AlertNotification."""
-    from api.config import get_config
-    alert_dict = {
-        "id": log.id, "severidade": log.severidade, "metrica": log.metrica,
-        "mensagem": log.mensagem, "triggered_at": log.triggered_at.isoformat() + "Z",
-        "valor_no_disparo": log.valor_no_disparo, "threshold": log.threshold,
-    }
-    if rule.canal_email:
-        if get_config(session, "smtp_enabled") == "1":
-            try:
-                from notifications.email_service import send_alert
-                send_alert(alert_dict, session)
-                _record_notification(session, log.id, "email", "disparo", "enviado")
-            except Exception as e:
-                _record_notification(session, log.id, "email", "disparo", "falhou", str(e))
-                logger.exception("Erro ao enviar e-mail de alerta")
-        else:
-            _record_notification(session, log.id, "email", "disparo", "desabilitado")
-    if rule.canal_whatsapp:
-        if get_config(session, "evolution_enabled") == "1":
-            try:
-                from notifications.whatsapp_service import send_alert as wa_send
-                wa_send(alert_dict, session)
-                _record_notification(session, log.id, "whatsapp", "disparo", "enviado")
-            except ImportError:
-                pass
-            except Exception as e:
-                _record_notification(session, log.id, "whatsapp", "disparo", "falhou", str(e))
-                logger.exception("Erro ao enviar WhatsApp de alerta")
-        else:
-            _record_notification(session, log.id, "whatsapp", "disparo", "desabilitado")
+    """Dispara notificação de alerta (email e/ou whatsapp) e grava cada tentativa em AlertNotification.
+
+    `last_notified_at` e gravado ANTES de qualquer tentativa de envio, nao
+    depois. O campo significa "ja tentamos anunciar este alerta" — se
+    gravassemos so no fim, uma excecao em get_config() (chamada fora de
+    qualquer try) seria engolida pelo `except Exception` por-regra em
+    evaluate() e o commit seguinte persistiria um AlertLog aberto com
+    last_notified_at NULL: exatamente o alerta mudo que este motor existe
+    para eliminar.
+    """
     log.last_notified_at = now
+    try:
+        from api.config import get_config
+        alert_dict = {
+            "id": log.id, "severidade": log.severidade, "metrica": log.metrica,
+            "mensagem": log.mensagem, "triggered_at": log.triggered_at.isoformat() + "Z",
+            "valor_no_disparo": log.valor_no_disparo, "threshold": log.threshold,
+        }
+        if rule.canal_email:
+            if get_config(session, "smtp_enabled") == "1":
+                try:
+                    from notifications.email_service import send_alert
+                    send_alert(alert_dict, session)
+                    _record_notification(session, log.id, "email", "disparo", "enviado")
+                except Exception as e:
+                    _record_notification(session, log.id, "email", "disparo", "falhou", str(e))
+                    logger.exception("Erro ao enviar e-mail de alerta")
+            else:
+                _record_notification(session, log.id, "email", "disparo", "desabilitado")
+        if rule.canal_whatsapp:
+            if get_config(session, "evolution_enabled") == "1":
+                try:
+                    from notifications.whatsapp_service import send_alert as wa_send
+                    wa_send(alert_dict, session)
+                    _record_notification(session, log.id, "whatsapp", "disparo", "enviado")
+                except ImportError:
+                    pass
+                except Exception as e:
+                    _record_notification(session, log.id, "whatsapp", "disparo", "falhou", str(e))
+                    logger.exception("Erro ao enviar WhatsApp de alerta")
+            else:
+                _record_notification(session, log.id, "whatsapp", "disparo", "desabilitado")
+    except Exception:
+        logger.exception("Erro inesperado ao notificar alerta %s", log.id)
 
 
 def _notify_resolution(session: Session, log: AlertLog, rule: AlertRule):
