@@ -766,17 +766,30 @@ def test_resolucao_de_alerta_nunca_notificado_e_silenciosa_mas_grava_resolved_at
 
 
 def test_container_parado_nao_notifica_resolucao_se_nao_notificou_queda(fresh_db):
+    """Alerta deixado aberto pelo codigo ANTIGO (last_notified_at NULL) nao
+    pode gerar um "resolvido" no deploy. resolved_at ainda tem que ser
+    gravado — a tela de historico nao pode mentir sobre o estado.
+
+    Setup mudou na Task 8: antes, `duracao_minutos=2` + evaluate() bastava
+    para fabricar esse alerta mudo (o AlertLog nascia antes de duration_ok
+    liberar a notificacao — exatamente o defeito que a Task 8 fechou). Com
+    a janela sustentada, o AlertLog so nasce quando ja pode notificar, entao
+    esse estado so e alcancavel como residuo de um AlertLog criado pelo
+    codigo antigo e ainda aberto quando este deploy sobe — por isso a
+    insercao direta no banco, espelhando o caso analogo de load_1m
+    (test_resolucao_de_alerta_nunca_notificado_e_silenciosa_mas_grava_resolved_at).
+    A guarda de resolucao continua precisando cobrir esse residuo real."""
     from notifications.alert_engine import evaluate
-    # duracao_minutos=2 faz duration_ok ser falso na criacao: o alerta nasce
-    # calado. Sem a guarda, a volta do container mandaria um "resolvido"
-    # de um alerta que nunca foi anunciado.
-    add_rule(fresh_db, metrica="container_stopped", operador="==", threshold=1,
-             duracao_minutos=2, canal_whatsapp=1, canal_email=0)
-    asyncio.run(evaluate(make_metrics(), [{"name": "nginx", "status": "exited"}]))
+    rule_id = add_rule(fresh_db, metrica="container_stopped", operador="==", threshold=1,
+                        duracao_minutos=2, canal_whatsapp=1, canal_email=0)
     with Session(fresh_db) as s:
-        log = s.query(AlertLog).first()
-        assert log.last_notified_at is None
-        log_id = log.id
+        s.add(AlertLog(
+            rule_id=rule_id, triggered_at=datetime.utcnow(), severidade="critico",
+            metrica="container_stopped", valor_no_disparo=1, threshold=1,
+            mensagem="Container 'nginx' parado", last_notified_at=None,
+        ))
+        s.commit()
+        log_id = s.query(AlertLog).first().id
 
     asyncio.run(evaluate(make_metrics(), [{"name": "nginx", "status": "running"}]))
 
