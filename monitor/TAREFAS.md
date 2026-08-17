@@ -38,22 +38,43 @@ Confirmado que é **degrau, não vazamento**: kong 488 → ~700 MB em 13/08 e **
 ### (b) "Recebe requisições sem ninguém acessar" — é healthcheck interno.
 `supabase-syscursos-supavisor-1` faz `HEAD /api/health` **a cada 10 segundos** — ~8.640 requisições/dia, todas internas, nenhuma vinda da internet. É o que enche os 5 MB de log dele (o maior da stack). Comportamento normal do Supavisor, não é tráfego de usuário.
 
-### (c) "Não consigo fazer login" — o login FUNCIONA. O problema é outro. **AÇÃO PENDENTE.**
-No log inteiro do `auth`: **88 logins bem-sucedidos** com `douglaslundy100@gmail.com`, **41** com `douglaslundy@gmail.com`, e apenas **6 falhas de credencial**. O último sucesso foi **2026-08-17 00:05 UTC (16/08 21:05 local)**. O GoTrue está saudável.
+### (c) "Não consigo fazer login" — CAUSA RAIZ CONFIRMADA 2026-08-17. Aguardando mudança de código na Vercel.
 
-**O defeito real:** `x_forwarded_proto: "http"` em **216 de 216** requisições. Nenhuma chega ao auth como `https`. Traefik/Kong não estão propagando o protocolo. Consequências: links de e-mail (confirmação, reset de senha) são gerados com `http://`, cookies `Secure` podem ser recusados pelo navegador, e redirect/callback quebram. O padrão visto no log — login `200` seguido de logout `204` ~6 segundos depois, repetidamente — é consistente com "autentica mas a sessão não gruda".
+**Sintoma do usuário:** erro "não foi possível concluir o login agora, tente novamente mais tarde" (mensagem do próprio app, não do Supabase) + lentidão. App hospedado na Vercel. "Funcionava até semana passada."
 
-Aviso correlato, repetido no log: `GOTRUE_MAILER_EXTERNAL_HOSTS` não inclui `supabase-syscursos.circuitodascorridas.com.br`.
+**Investigação ao vivo:** monitorei em tempo real (`tail -f` do access log do Traefik) enquanto o usuário tentava logar — **nenhuma requisição chegou nesta VPS durante a tentativa**. Ou seja, a chamada nem sai do app, ou sai por um caminho que não passa pelo Traefik/Kong.
 
-**Correção provável** (não aplicada — stack de outro projeto, precisa de autorização): garantir `X-Forwarded-Proto: https` do Traefik até o Kong, e setar `GOTRUE_MAILER_EXTERNAL_HOSTS` / `API_EXTERNAL_URL` com o domínio real em https. **Antes de mexer: confirmar com o usuário qual é o sintoma exato que ele vê no navegador** — a correção muda conforme seja "não entra", "entra e cai", ou "link do e-mail não abre".
-**Sintoma relatado:** o usuário não consegue fazer login no syscursos; ele "nem está funcionando". Mesmo assim a stack cresceu ~360 MB de RAM e aparece consumindo.
+**Causa raiz:** o app na Vercel conecta **direto no Postgres** (via Supavisor, portas `55432`/`6643`), não pela API REST/Auth (porta 443/Kong). Essas duas portas foram fechadas para a internet em **2026-08-12**, numa correção de segurança anterior autorizada pelo usuário (estavam publicamente expostas, defendidas só pela senha do banco — achado crítico real, ver histórico em `PROGRESSO.md`). "Funcionava até semana passada" bate exatamente com essa data.
 
-**Evidência já coletada nesta sessão (não investigada a fundo ainda):**
-- Degrau permanente de RAM começando **2026-08-13 14h UTC**, coincidindo no minuto com o restart de `supabase-syscursos-realtime-1` (`2026-08-13T14:04:55Z`, `RestartCount=1`).
-- Crescimento por container entre 13/08 e 15/08: `supabase-syscursos-kong-1` 522→704 MB, `realtime-1` 130→228 MB, `storage-1` 60→112 MB, `db-1` 66→98 MB.
-- `supabase-syscursos-kong-1` é um dos maiores consumidores de CPU da VPS (3,6% contínuo).
+**Confirmado com teste de um ponto genuinamente externo** (não da própria VPS, que mentiria por hairpin NAT):
+```
+porta 55432: SEM RESPOSTA (timeout)
+porta 6643:  SEM RESPOSTA (timeout)
+```
+A porta não recusa — só não responde. O cliente fica esperando até desistir sozinho, o que explica a lentidão relatada antes do erro.
 
-**Hipóteses a testar (não confirmadas):** loop de retry do `realtime` (websocket reconectando sem parar) gerando requisições internas contra o Kong; ou algo externo martelando a API. Verificar logs do `realtime` e do `kong`, e se o crescimento de memória é vazamento ou só cache.
+**Por que não reabrir a porta:** a Vercel, no plano padrão, **não tem IP de saída fixo** — cada execução da função sai por um IP diferente de um pool da AWS (confirmado via busca — ver `Static IPs` da Vercel, feature paga de Pro/Enterprise). Não existe lista de IPs pra liberar no firewall sem pagar por esse add-on ou usar um proxy de terceiros (ex: QuotaGuard).
+
+**Caminho escolhido pelo usuário: trocar a conexão do app para a API HTTP (porta 443), que já está aberta e funcionando.** Testado de fora agora mesmo:
+```
+GET /auth/v1/health → HTTP 401, 1.26s
+GET /rest/v1/        → HTTP 401, 0.75s
+```
+401 é o esperado sem chave — prova que o caminho está de pé, passando pelo Traefik, TLS ok.
+
+**O que passar para quem mexe no código do app (fora do alcance desta sessão — é outro repositório, na Vercel):**
+```
+SUPABASE_URL=https://supabase-syscursos.circuitodascorridas.com.br
+SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjIwOTcyOTAyODgsImlhdCI6MTc4MTkzMDI4OCwiaXNzIjoic3VwYWJhc2UiLCJyb2xlIjoiYW5vbiJ9.S5iU00HxWTfig2QFfcTG8G0o6-DlxbMWypweO27_B6M
+```
+Se o login usa `@supabase/supabase-js` com `createClient(SUPABASE_URL, SUPABASE_ANON_KEY)`, já fala por HTTPS/443 e o problema some sem tocar na VPS. Se em algum lugar existir `DATABASE_URL`/`POSTGRES_URL` apontando pra `55432` ou `6643` (Prisma, Drizzle, etc.), essa é a conexão bloqueada — precisa sumir ou virar a chamada HTTP.
+
+**Nenhuma mudança feita na VPS.** As portas continuam fechadas (correto, por segurança). O login segue quebrado até a mudança do lado da Vercel.
+
+**Achados anteriores desta investigação, refutados ou explicados — não são o problema:**
+- "Engordou ~360 MB": não era vazamento, era swap-in no restart de 13/08 14h UTC (RAM+swap somado *caiu*, ficou estável há 4 dias).
+- "Recebe requisições sem ninguém acessar": é o healthcheck interno do próprio Supavisor a cada 10s (~8.640/dia), não é tráfego externo.
+- O aviso de `x_forwarded_proto: http` no log do `auth` existe mas é secundário — não é a causa do erro relatado, já que nenhuma requisição chega nesta VPS durante a tentativa de login. Pode valer investigar depois se sobrar algum sintoma após a troca para HTTP, mas não é prioridade agora.
 
 ---
 
