@@ -93,9 +93,33 @@ Os alertas dos containers de verdade (`web`/`api`/`worker`) no mesmo período s�
 
 ---
 
-## 3. Requisições diárias a subdomínios que não existem (ex: `zap.dlsistemas.com.br`)
-**Pedido:** entender de onde vêm e resolver "de uma vez por todas".
+## 3. Requisições diárias a subdomínios que não existem (ex: `zap.dlsistemas.com.br`) — ✅ CAUSA RAIZ REAL CORRIGIDA (2026-08-17). Um refinamento maior fica pendente, de propósito.
 
-**Contexto que já existe no projeto:** já houve trabalho de "bloqueio de subdomínios fantasmas no mecanicapro" (ver `PROGRESSO.md`, histórico) e existe um jail `mecanicapro-ghost-subdomain` no fail2ban. Avaliar se a solução certa é generalizar isso para todo o domínio via Traefik (regra catch-all que rejeita host desconhecido) em vez de jail por projeto.
+**Pedido original:** entender de onde vêm e resolver "de uma vez por todas".
 
-Fontes de dados já disponíveis: tabela `access_log` do monitor (host, IP, path), página `/acessos`, e o access log do Traefik em `/var/log/traefik`.
+### O mecanismo (era mal-entendido antes desta sessão)
+Existe uma regra proposital no Traefik, `mecanicapro-tenants` (`/opt/traefik/dynamic/mecanicapro.yml`), que casa **qualquer** subdomínio de `dlsistemas.com.br` — é assim que o SaaS do mecanicapro roteia cliente por subdomínio, sem precisar de uma rota nova a cada cliente novo. Não dá pra restringir essa regra sem risco de quebrar cliente real.
+
+O nginx do mecanicapro **já tinha** a defesa certa: lista de inquilinos válidos (`tenant-slugs.map`, hoje só 2 entradas reais: `oficina-do-lundy` e `stuntmotos`), fecha sem responder (`444`) quem não está na lista, registra em `ghost_subdomains.log`, e o jail `mecanicapro-ghost-subdomain` do fail2ban vigia esse log. O 502 que aparecia nos testes é só o Traefik traduzindo "o nginx fechou a conexão sem responder" — não é falha do nginx.
+
+### O defeito real, encontrado nesta sessão
+**O log registrava o IP errado.** O nginx usava `$remote_addr` (quem tocou na porta), que desde que o Traefik passou a ficar na frente é sempre `172.23.0.1` — o gateway interno da própria rede Docker do mecanicapro, não o visitante. Prova: **58.853 tentativas registradas, e o fail2ban só "identificou" um único atacante: `172.23.0.1`, o próprio Docker.** O sistema se bania e desbania sem parar, nunca bloqueou um bot de verdade — e havia risco real (não confirmado como incidente, mas plausível) de esse banimento acidental atingir o tráfego de clientes reais, já que compartilham o mesmo IP de origem visto pelo nginx.
+
+### Correção aplicada (autorizada, testada, sem downtime)
+`/opt/mecanicapro/docker/nginx/mecanicapro.conf` — acrescentadas 2 diretivas no bloco `server` (backup em `mecanicapro.conf.bak-20260817092539`):
+```
+set_real_ip_from 172.23.0.1;
+real_ip_header X-Forwarded-For;
+```
+`nginx -t` + `nginx -s reload` (sem restart, sem downtime). Testado de um ponto externo real antes/depois: `oficina-do-lundy` e `stuntmotos` continuam respondendo normal (307); subdomínio fantasma novo continua rejeitado (502 visto de fora); log passou a registrar IP diferente do gateway interno.
+
+**Cobre a maior parte do problema real de imediato:** bots que atacam direto no IP do servidor (que era a maioria do que se via no log — sondas de WordPress, `wp-admin`, `xmlrpc.php`) agora são identificados corretamente. Verificado que isso é seguro contra falsificação: mesmo que o bot tente forjar o cabeçalho `X-Forwarded-For`, só o último valor da cadeia conta, e esse é sempre escrito pelo Traefik com base na conexão real, não no que o cliente mandou.
+
+**Bônus fora do escopo original, aplicado por segurança operacional:** `ghost_subdomains.log` não tinha rotação nenhuma e já estava em ~25 MB, crescendo sem parar. Criado `/etc/logrotate.d/mecanicapro-ghost-subdomains` (mesmo padrão `copytruncate` já usado em `traefik-access-log` nesta VPS, com `su root root` por causa da permissão 777 do diretório pai — não mexida). Testado com `logrotate -d`, sem erro.
+
+### O que fica pendente, de propósito — decisão consciente, não esquecimento
+**Tráfego que passa pela Cloudflare** (o domínio está atrás dela — confirmado via `Server: cloudflare`/`CF-RAY`) ainda aparece no log como o IP de borda da Cloudflare (ex: `172.71.238.166`), não o visitante final. Melhor que antes (não é mais o Docker se auto-banindo), mas incompleto.
+
+**Por que não foi até o fim:** a correção completa exige mexer no **Traefik**, que atende **todos os projetos desta VPS** (confirmado: pelo menos 9 regras de roteamento distintas) — não só o mecanicapro. A mudança fica em `/opt/traefik/traefik.yml`, configuração **estática**, só lida na inicialização: exigiria **reiniciar o Traefik** (interrupção breve de todos os domínios ao mesmo tempo) e um erro na config trava a VPS inteira até ser corrigido manualmente. Apresentado o risco ao usuário, que decidiu adiar — decisão registrada, não pendência esquecida.
+
+**Se algum dia for fazer:** em `entryPoints.web`/`entryPoints.websecure` de `traefik.yml`, acrescentar `forwardedHeaders.trustedIPs` com as faixas publicadas pela Cloudflare (`https://www.cloudflare.com/ips/`, mudam de tempos em tempos — conferir na hora, não usar lista velha). Fazer em horário de baixo movimento, com backup do `traefik.yml`, e testar **todos** os domínios depois do restart, não só o mecanicapro.
