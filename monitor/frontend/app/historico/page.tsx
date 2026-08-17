@@ -47,25 +47,34 @@ export default function HistoricoPage() {
   const [companion, setCompanion] = useState<string | null>(null);
 
   const current = METRICS.find(m => m.value === metric)!;
+  const companionLabel = companion === 'load_5m' ? 'média 5 min' : null;
 
   const load = useCallback(async () => {
     setLoading(true);
+    const hoursMap: Record<string, number> = { '1h': 1, '6h': 6, '24h': 24, '7d': 168 };
+    const hours = hoursMap[range] ?? 24;
+
+    // As duas chamadas sao independentes: uma falha nas anotacoes (ex: backend
+    // antigo sem o endpoint, numa janela de deploy) nao pode derrubar a serie
+    // principal e trocar o grafico por "Sem dados para o periodo selecionado".
     try {
-      const hoursMap: Record<string, number> = { '1h': 1, '6h': 6, '24h': 24, '7d': 168 };
-      const hours = hoursMap[range] ?? 24;
-      const [serie, anot] = await Promise.all([
-        api.get(`/metrics/history?metric=${metric}&hours=${hours}`),
-        api.get(`/metrics/history/annotations?metric=${metric}&hours=${hours}`),
-      ]);
+      const serie = await api.get(`/metrics/history?metric=${metric}&hours=${hours}`);
       setData(serie.data.data ?? []);
       setCompanion(serie.data.companion ?? null);
+    } catch {
+      setData([]); setCompanion(null);
+    }
+
+    try {
+      const anot = await api.get(`/metrics/history/annotations?metric=${metric}&hours=${hours}`);
       setThreshold(anot.data.threshold ?? null);
       setRegraNome(anot.data.regra ?? null);
       setAlertas(anot.data.alertas ?? []);
     } catch {
-      setData([]); setCompanion(null); setThreshold(null); setRegraNome(null); setAlertas([]);
+      setThreshold(null); setRegraNome(null); setAlertas([]);
     }
-    finally { setLoading(false); }
+
+    setLoading(false);
   }, [range, metric]);
 
   useEffect(() => { load(); }, [load]);
@@ -134,7 +143,7 @@ export default function HistoricoPage() {
             threshold={threshold}
             thresholdLabel={regraNome ? `${regraNome} (${threshold})` : undefined}
             alertRanges={alertas.map(a => ({ start: a.triggered_at, end: a.resolved_at }))}
-            series2Label={companion === 'load_5m' ? 'média 5 min' : undefined}
+            series2Label={companionLabel ?? undefined}
           />
         ) : (
           <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)' }}>
@@ -143,9 +152,10 @@ export default function HistoricoPage() {
         )}
       </div>
 
-      {(threshold != null || alertas.length > 0) && (
+      {(threshold != null || alertas.length > 0 || companionLabel) && (
         <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 16 }}>
-          {threshold != null && <>Linha tracejada = limite do alerta. </>}
+          {threshold != null && <>Linha tracejada cinza = limite do alerta ({regraNome ?? threshold}). </>}
+          {companionLabel && <>Linha tracejada na cor da série = {companionLabel}. </>}
           {alertas.length > 0 && <>Pontos vermelhos = alerta disparado ({alertas.length} no período).</>}
         </div>
       )}

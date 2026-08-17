@@ -79,6 +79,7 @@ export default function LineChart({
               y={threshold}
               stroke="var(--muted)"
               strokeDasharray="6 4"
+              ifOverflow="extendDomain"
               label={{
                 value: thresholdLabel ?? `limite ${threshold}`,
                 position: 'insideTopRight',
