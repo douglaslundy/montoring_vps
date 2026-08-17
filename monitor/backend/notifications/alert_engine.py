@@ -70,6 +70,41 @@ def _condicao_sustentada(session: Session, rule: AlertRule, now: datetime) -> bo
     return all(valor is not None and op(valor, rule.threshold) for _, valor in linhas)
 
 
+def _container_parado_sustentado(session: Session, rule: AlertRule, container_id: str, now: datetime) -> bool:
+    """True se o container esteve fora de 'running' em TODAS as amostras da janela.
+
+    Mesma ideia de _condicao_sustentada, mas o sinal vem do status gravado em
+    ContainerMetrics em vez de uma coluna do metrics_history. Sem isto, todo
+    deploy vira alerta: 64% dos alertas de container parado em producao se
+    resolviam em menos de 2 minutos.
+    """
+    if rule.duracao_minutos == 0:
+        return True
+
+    inicio = now - timedelta(minutes=rule.duracao_minutos)
+    # ContainerMetrics.container_id grava o ID curto (c["id"]), nao o
+    # id_full — ver comentario identico em _evaluate_restart_loop.
+    linhas = (
+        session.query(ContainerMetrics.collected_at, ContainerMetrics.status)
+        .filter(
+            ContainerMetrics.container_id == container_id,
+            ContainerMetrics.collected_at >= inicio,
+        )
+        .order_by(ContainerMetrics.collected_at)
+        .all()
+    )
+    if not linhas:
+        return False
+
+    # A janela precisa estar coberta por dados: sem isto, um backend que
+    # subiu ha 1 minuto confirmaria com uma amostra so.
+    idade_mais_antiga = (now - linhas[0][0]).total_seconds()
+    if idade_mais_antiga < rule.duracao_minutos * 60 - _TOLERANCIA_JANELA_S:
+        return False
+
+    return all(status is not None and status != "running" for _, status in linhas)
+
+
 def _top_by(containers: list, key: str, n: int = 3) -> list:
     ranked = sorted(
         (c for c in containers if c.get(key) is not None),
@@ -323,6 +358,15 @@ async def _evaluate_container_stopped(session: Session, rule: AlertRule, contain
         )
 
         if open_log is None:
+            # A janela e confirmada ANTES de abrir o alerta, igual em
+            # _evaluate_rule: assim o alerta so existe quando a duracao ja
+            # foi cumprida e pode notificar a queda no mesmo ciclo em que
+            # nasce. Sem isto, deploys e reinicios normais (container cai e
+            # volta em segundos) viravam AlertLog + notificacao toda vez.
+            short_id = c.get("id")
+            if not _container_parado_sustentado(session, rule, short_id, now):
+                continue
+
             contexto = None
             container_id = c.get("id_full") or c.get("id")
             if docker_client is not None and container_id:
@@ -353,16 +397,15 @@ async def _evaluate_container_stopped(session: Session, rule: AlertRule, contain
             session.add(open_log)
             session.flush()  # garante open_log.id para o FK de AlertNotification
 
-        duration_ok = rule.duracao_minutos == 0 or (
-            (now - open_log.triggered_at).total_seconds() / 60 >= rule.duracao_minutos
-        )
         # Notifica só uma vez, na queda — não é um lembrete periódico "ainda
         # parado" (cooldown_minutos não se aplica aqui). Com cooldown_minutos=0
         # (default desta regra) e o scheduler rodando a cada ~30s, comparar
         # contra cooldown a cada ciclo reenviava notificação sem parar
         # enquanto o container continuasse parado; a notificação de
-        # resolução (abaixo) já cobre "voltou a funcionar".
-        if duration_ok and open_log.last_notified_at is None:
+        # resolução (abaixo) já cobre "voltou a funcionar". A duracao já foi
+        # satisfeita por construção (o AlertLog só existe se sustentado), por
+        # isso não há mais gate de duration_ok aqui.
+        if open_log.last_notified_at is None:
             _notify_alert(session, open_log, rule, now)
 
     # Resolve containers que voltaram a running OU que foram removidos

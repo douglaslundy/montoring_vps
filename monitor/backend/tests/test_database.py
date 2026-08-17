@@ -432,3 +432,37 @@ def test_migracao_preserva_ajuste_manual_do_usuario(test_db):
     with Session(test_db.engine) as session:
         regra = session.query(test_db.AlertRule).filter_by(nome="Load Alto").first()
     assert regra.duracao_minutos == 7
+
+
+def test_regra_container_parado_usa_confirmacao_de_2_minutos(test_db):
+    with Session(test_db.engine) as session:
+        regra = session.query(test_db.AlertRule).filter_by(nome="Container Parado").first()
+    assert regra.duracao_minutos == 2
+
+
+def test_migracao_ajusta_container_parado_de_0_para_2(test_db):
+    # Banco de producao nasceu com 0 (sem janela): todo deploy/reinicio
+    # normal virava alerta imediato.
+    with Session(test_db.engine) as session:
+        regra = session.query(test_db.AlertRule).filter_by(nome="Container Parado").first()
+        regra.duracao_minutos = 0
+        session.commit()
+
+    test_db.init_db()
+
+    with Session(test_db.engine) as session:
+        regra = session.query(test_db.AlertRule).filter_by(nome="Container Parado").first()
+    assert regra.duracao_minutos == 2
+
+
+def test_migracao_container_parado_preserva_ajuste_manual_do_usuario(test_db):
+    with Session(test_db.engine) as session:
+        regra = session.query(test_db.AlertRule).filter_by(nome="Container Parado").first()
+        regra.duracao_minutos = 5
+        session.commit()
+
+    test_db.init_db()
+
+    with Session(test_db.engine) as session:
+        regra = session.query(test_db.AlertRule).filter_by(nome="Container Parado").first()
+    assert regra.duracao_minutos == 5

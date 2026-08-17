@@ -71,12 +71,46 @@ def load_rule(engine, **kwargs):
     return add_rule(engine, **defaults)
 
 
+def seed_container_status(engine, container_id, status_list, *, now=None, intervalo_s=30, container_name="worker"):
+    """Grava amostras de ContainerMetrics.status espacadas de intervalo_s terminando em `now`.
+
+    status_list[0] eh a amostra MAIS ANTIGA, status_list[-1] a mais recente.
+    Espelha seed_history, mas para o status gravado em ContainerMetrics em vez
+    de uma coluna do metrics_history.
+    """
+    from models.database import ContainerMetrics
+    now = now or datetime.utcnow()
+    with Session(engine) as s:
+        for i, status in enumerate(reversed(status_list)):
+            s.add(ContainerMetrics(
+                collected_at=now - timedelta(seconds=i * intervalo_s),
+                container_id=container_id, container_name=container_name,
+                status=status,
+            ))
+        s.commit()
+    return now
+
+
 def sustentada(engine, rule_id, now):
     from notifications.alert_engine import _condicao_sustentada
     from models.database import AlertRule
     with Session(engine) as s:
         rule = s.get(AlertRule, rule_id)
         return _condicao_sustentada(s, rule, now)
+
+
+def container_parado_rule(engine, **kwargs):
+    defaults = dict(metrica="container_stopped", operador="==", threshold=1, duracao_minutos=2)
+    defaults.update(kwargs)
+    return add_rule(engine, **defaults)
+
+
+def container_parado_sustentado(engine, rule_id, container_id, now):
+    from notifications.alert_engine import _container_parado_sustentado
+    from models.database import AlertRule
+    with Session(engine) as s:
+        rule = s.get(AlertRule, rule_id)
+        return _container_parado_sustentado(s, rule, container_id, now)
 
 
 def test_creates_alert_when_threshold_exceeded(fresh_db):
@@ -850,3 +884,109 @@ def test_get_config_falhando_nao_deixa_alerta_aberto_com_last_notified_at_nulo(f
         log = s.query(AlertLog).filter(AlertLog.resolved_at.is_(None)).first()
         assert log is not None
         assert log.last_notified_at is not None
+
+
+# --- _container_parado_sustentado ---------------------------------------
+# Mesma bateria de _condicao_sustentada, mas o sinal vem de
+# ContainerMetrics.status em vez de uma coluna do metrics_history.
+# Janela padrao da regra "Container Parado": 2 minutos (120s).
+
+def test_container_parado_sustentado_quando_janela_toda_parada(fresh_db):
+    # 5 amostras x 30s = 120s = os 2 min exigidos
+    now = seed_container_status(fresh_db, "abc123", ["exited"] * 5)
+    rule_id = container_parado_rule(fresh_db)
+    assert container_parado_sustentado(fresh_db, rule_id, "abc123", now) is True
+
+
+def test_container_parado_nao_sustentado_com_running_no_meio(fresh_db):
+    now = seed_container_status(fresh_db, "abc123", ["exited", "exited", "running", "exited", "exited"])
+    rule_id = container_parado_rule(fresh_db)
+    assert container_parado_sustentado(fresh_db, rule_id, "abc123", now) is False
+
+
+def test_container_parado_nao_sustentado_sem_amostras(fresh_db):
+    rule_id = container_parado_rule(fresh_db)
+    assert container_parado_sustentado(fresh_db, rule_id, "abc123", datetime.utcnow()) is False
+
+
+def test_container_parado_nao_sustentado_quando_janela_mal_coberta(fresh_db):
+    # Backend recem-subido: so 30s de dados numa janela de 2 min. Nao confirma.
+    now = seed_container_status(fresh_db, "abc123", ["exited", "exited"])
+    rule_id = container_parado_rule(fresh_db)
+    assert container_parado_sustentado(fresh_db, rule_id, "abc123", now) is False
+
+
+def test_container_parado_sustentado_no_limite_da_tolerancia(fresh_db):
+    # 4 amostras x 30s = 90s. A coleta e a cada 30s, entao a amostra mais
+    # antiga dentro de uma janela de 2 min NUNCA tem 120s exatos — sem
+    # tolerancia isso reprovaria sempre.
+    now = seed_container_status(fresh_db, "abc123", ["exited"] * 4)
+    rule_id = container_parado_rule(fresh_db)
+    assert container_parado_sustentado(fresh_db, rule_id, "abc123", now) is True
+
+
+def test_container_parado_nao_sustentado_com_status_nulo(fresh_db):
+    now = seed_container_status(fresh_db, "abc123", ["exited", "exited", None, "exited", "exited"])
+    rule_id = container_parado_rule(fresh_db)
+    assert container_parado_sustentado(fresh_db, rule_id, "abc123", now) is False
+
+
+def test_container_parado_duracao_zero_dispensa_a_janela(fresh_db):
+    rule_id = container_parado_rule(fresh_db, duracao_minutos=0)
+    assert container_parado_sustentado(fresh_db, rule_id, "abc123", datetime.utcnow()) is True
+
+
+# --- _evaluate_container_stopped com janela sustentada -------------------
+
+def test_container_cai_e_volta_dentro_da_janela_nao_cria_alerta(fresh_db):
+    """Caso real dos 273 deploys/reinicios em producao: container cai e volta
+    antes da janela de 2 min confirmar — nenhum AlertLog, nenhuma notificacao."""
+    from notifications.alert_engine import evaluate
+    enable_channels(fresh_db)
+    container_parado_rule(fresh_db, canal_whatsapp=1, canal_email=0)
+    containers_parado = [{"id": "abc123", "id_full": "abc123full", "name": "nginx", "status": "exited"}]
+    with patch("notifications.whatsapp_service.send_alert") as mock_send:
+        asyncio.run(evaluate(make_metrics(), containers_parado))
+        containers_voltou = [{"id": "abc123", "id_full": "abc123full", "name": "nginx", "status": "running"}]
+        asyncio.run(evaluate(make_metrics(), containers_voltou))
+    assert count_open(fresh_db) == 0
+    with Session(fresh_db) as s:
+        assert s.query(AlertLog).filter(AlertLog.metrica == "container_stopped").count() == 0
+    mock_send.assert_not_called()
+
+
+def test_container_parado_pela_janela_inteira_cria_e_notifica_no_mesmo_ciclo(fresh_db):
+    from notifications.alert_engine import evaluate
+    enable_channels(fresh_db)
+    container_parado_rule(fresh_db, canal_whatsapp=1, canal_email=0)
+    now = seed_container_status(fresh_db, "abc123", ["exited"] * 5)
+    containers = [{"id": "abc123", "id_full": "abc123full", "name": "nginx", "status": "exited"}]
+    with patch("notifications.whatsapp_service.send_alert") as mock_send:
+        asyncio.run(evaluate(make_metrics(), containers))
+    assert count_open(fresh_db) == 1
+    with Session(fresh_db) as s:
+        log = s.query(AlertLog).filter(AlertLog.metrica == "container_stopped").first()
+        assert log.last_notified_at is not None
+        log_id = log.id
+    disparos = [n for n in get_notifications(fresh_db, log_id) if n.tipo == "disparo"]
+    assert len(disparos) == 1
+    mock_send.assert_called_once()
+
+
+def test_container_parado_sustentado_notifica_resolucao_quando_volta(fresh_db):
+    from notifications.alert_engine import evaluate
+    enable_channels(fresh_db)
+    container_parado_rule(fresh_db, canal_whatsapp=1, canal_email=0)
+    seed_container_status(fresh_db, "abc123", ["exited"] * 5)
+    containers_parado = [{"id": "abc123", "id_full": "abc123full", "name": "nginx", "status": "exited"}]
+    with patch("notifications.whatsapp_service.send_alert"):
+        asyncio.run(evaluate(make_metrics(), containers_parado))
+    with Session(fresh_db) as s:
+        log_id = s.query(AlertLog).filter(AlertLog.metrica == "container_stopped").first().id
+    containers_voltou = [{"id": "abc123", "id_full": "abc123full", "name": "nginx", "status": "running"}]
+    with patch("notifications.whatsapp_service.send_resolution") as mock_res:
+        asyncio.run(evaluate(make_metrics(), containers_voltou))
+    assert count_open(fresh_db) == 0
+    resolucoes = [n for n in get_notifications(fresh_db, log_id) if n.tipo == "resolucao"]
+    assert len(resolucoes) == 1
+    mock_res.assert_called_once()
