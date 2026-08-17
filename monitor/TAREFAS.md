@@ -19,7 +19,10 @@ Nada do trabalho de alertas acima é necessário. O que importa levar:
 
 ---
 
-## 1. syscursos — INVESTIGADO 2026-08-16. Duas das três queixas não eram problema; a terceira é real.
+## 1. syscursos — ✅ RESOLVIDO (2026-08-17). Login confirmado funcionando.
+Correção aplicada do lado da Vercel (fora desta sessão): app trocou de conexão direta ao Postgres para a API HTTP. Confirmado no log do `auth` — requisições chegando de IPs AWS (mesma faixa da Vercel) via HTTPS/443, com `200` de sucesso reais nas contas do usuário (`douglaslundy100@gmail.com`, `douglaslundy@gmail.com`), últimos às 04:38 UTC de 17/08. Os `400 invalid_credentials` vistos junto são senha errada durante os testes, não infra. Containers todos saudáveis, sem restart, uso de recursos normal.
+
+Detalhe da investigação completa abaixo, mantido como referência.
 
 ### (a) "Engordou ~360 MB" — NÃO É PROBLEMA. Hipótese anterior refutada.
 A memória não cresceu: **saiu do swap e voltou para a RAM**. No momento exato do restart (13/08 14h UTC):
