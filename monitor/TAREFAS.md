@@ -81,10 +81,15 @@ Se o login usa `@supabase/supabase-js` com `createClient(SUPABASE_URL, SUPABASE_
 
 ---
 
-## 2. Container do xadrez parado
-Investigar qual container da stack `xadrez-essencial-*` está parado, por quê (exit code / OOM), e se deve subir de volta ou ser removido.
+## 2. Container do xadrez parado — ✅ INVESTIGADO 2026-08-17. Não há nada parado; falso positivo estrutural identificado.
 
-Nota: em 16/08 19:02 UTC houve um alerta `container_stopped` que resolveu sozinho em 28s — era o `corridas-app` (recriado 16:02 local), provavelmente não relacionado.
+**Estado atual:** os 7 containers de `xadrez-essencial-*` (web, api, worker, minio, postgres, redis, mailpit) estão de pé, saudáveis, `restart_count=0` em todos.
+
+**O que gerou o alerta:** `xadrez-essencial-minio-init-1` — um container de configuração que roda uma vez (cria buckets no MinIO) e termina por desenho, não por falha. Ele fica listado como "parado" até a faxina semanal do Docker (`docker system prune`, domingo) removê-lo — foi isso que "resolveu" o alerta sozinho, não uma ação de ninguém. Confirmado no histórico (30 dias): esse mesmo container gerou alertas de 10 dias, 5,6 dias, 3,5 dias e 1 dia em aberto, sempre com o mesmo padrão.
+
+Os alertas dos containers de verdade (`web`/`api`/`worker`) no mesmo período são todos curtos (a maioria <30min) e concentrados em 27/07 — consistente com deploy daquele dia, não com queda.
+
+**Sem ação necessária na stack.** Melhoria cosmética possível e não urgente: ensinar a regra "Container Parado" a ignorar containers cujo nome termina em `-init` (ou padrão equivalente), para não confundir job de configuração com serviço caído. Não implementado — fora do pedido original, avaliar só se o usuário quiser.
 
 ---
 
