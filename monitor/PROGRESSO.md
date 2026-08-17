@@ -31,8 +31,44 @@ Ledger canônico task a task: `../.superpowers/sdd/2026-08-16-alertas-load-histo
 ### Decisão de design tomada durante a implementação (não estava na spec)
 A `ReferenceLine` do threshold usa `var(--muted)`, **não** `var(--warning)` como a spec sugeria: `--warning` (#fb8c00) é praticamente a mesma cor da série de Load (#f97316) e do `--accent` (#f5a623) da série de CPU — a linha do limite sumiria dentro da própria série. Neutro lê como régua; vermelho (`--danger`) fica reservado aos marcadores de evento.
 
+### Revisão final de branch inteira — 3 achados Important que teriam ido para produção
+Rodada em `opus` sobre os 8 commits. **Nenhum deles era visível numa revisão por tarefa** — é exatamente o que a revisão de branch existe para pegar:
+
+1. **`ReferenceLine` do recharts descarta silenciosamente a linha fora do domínio calculado.** O `YAxis` usa `domain={unit === '%' ? [0,100] : ['auto','auto']}`; `load` tem `unit: ''`, logo domínio automático. Com load típico ~2,7 e threshold 6,0, o eixo terminava abaixo de 6,0 e **a linha do limite não era desenhada justamente no gráfico de load** — funcionava só em cpu/ram/disco, que têm domínio fixo. Pior: a legenda anunciava a linha assim mesmo, e como a série `load_5m` também é tracejada, a legenda rotularia a média de 5 min como se fosse o limite. Corrigido com `ifOverflow="extendDomain"` + legenda reescrita para distinguir os três elementos e só citar cada um quando está na tela.
+2. **`/metrics/history/annotations` filtrava `triggered_at >= cutoff`** — alerta iniciado antes da janela e ainda aberto não virava marcador. Abrir a `/historico` no meio de um incidente mostraria "nada disparou". Corrigido para filtro por **sobreposição** (`resolved_at IS NULL OR resolved_at >= cutoff`), com teste dos 4 casos de intervalo.
+3. **Fresta para alerta mudo:** `_notify_alert` gravava `last_notified_at` só na última linha; uma exceção em `get_config` era engolida pelo `except` por-regra e o `commit` persistia o `AlertLog` com o campo nulo. Corrigido gravando antes do envio.
+
+Commits da leva: `2563426` (backend) e `002ad24` (frontend). Re-revisão escopada: todos os achados endereçados, sem quebra nova.
+
+## Task 8 (extra, fora do plano) — janela para "Container Parado"
+
+A revisão final apontou que `_evaluate_container_stopped` era o **último caminho onde o defeito original ainda vivia**. Ao medir o impacto real, apareceu uma **segunda fonte de ruído que a investigação original não tinha visto**:
+
+> **425 alertas de `container_stopped` em 30 dias; 273 (64%) resolvidos em menos de 2 minutos; todos os 425 notificaram.** São deploys e reinícios normais — ~14 mensagens/dia sobre containers que já tinham voltado.
+
+Usuário autorizou corrigir. Commits `4083492` (migração de setup de teste, isolada) e `3827f0d` (implementação):
+- `_container_parado_sustentado()` — espelha `_condicao_sustentada`, mas lê `ContainerMetrics.status` (usa o **ID curto**, `c["id"]`, não o `id_full`).
+- `_evaluate_container_stopped` só cria o `AlertLog` depois da janela confirmada, e o gate `duration_ok` da notificação sai — igual ao que a Task 2 fez em `_evaluate_rule`.
+- Regra "Container Parado": `duracao_minutos` 0 → 2, migração condicionada a `== 0`.
+
+**Conflito real encontrado e escalado pelo implementador (fez certo em não chutar):** o teste `test_container_parado_nao_notifica_resolucao_se_nao_notificou_queda` (Task 3) fabricava o alerta mudo via `duracao_minutos=2` + `evaluate()` — o caminho que a Task 8 torna impossível. **Ruling:** o setup do teste era o próprio bug; migrado para inserção direta no banco (mesmo padrão do caso análogo de `load_1m`), asserções de comportamento preservadas, commit isolado, comentário no teste explicando por que a construção é artificial. A assertion removida era verificação de setup, não de comportamento — agora garantida por construção.
+
+### Resultado final medido
+- **Suíte: 339 passed** (baseline 293 no início da branch, +46).
+- **Regras em produção:** `Load Alto | 6.0 | 3` e `Container Parado | 1.0 | 2`, ambas via migração automática.
+- **Prova empírica da remoção do `drop_caches`** (`sar -r`, coluna `kbbuffers`):
+
+| | ontem (script ativo) | hoje (após remoção) |
+|---|---|---|
+| 20:20 | 10.544 ← despenca | 11.328 ← última queda que o script produziu (removido 20:29) |
+| 21:10 | 30.288 | 124.396 |
+| **21:20** | **10.456 ← despenca de novo** | **127.316 ← subiu** |
+| 21:50 | 24.580 | 132.260 |
+
+  O `:17` passou e o `kbbuffers` **subiu em vez de despencar** — primeira vez em 24 amostras/dia. O `kbcached` conta a mesma história: ontem preso em ~1,4 GB o dia inteiro, hoje 1,35 → 2,62 → 3,47 GB em 90 minutos. **O cache mais que dobrou.** Isso é ganho real de I/O para os 48 containers da VPS, não só menos alertas.
+
 ### Pendências desta tarefa
-- **Verificação de 24h ainda não feita** (Step 9 do plano): confirmar no `alert_log` que os alertas de `load_1m` caíram para ~4/semana e que **todo** alerta criado tem `last_notified_at IS NOT NULL`. Se aparecer alerta com `last_notified_at` nulo, há caminho não coberto — investigar antes de considerar encerrado.
+- **Verificação de 24h** (Step 9 do plano): confirmar no `alert_log` que os alertas de `load_1m` caíram para ~4/semana, que os de `container_stopped` caíram ~64%, e que **todo** alerta criado tem `last_notified_at IS NOT NULL`. Se aparecer alerta com `last_notified_at` nulo, há caminho não coberto — investigar antes de encerrar.
 - Confirmação visual da `/historico` pelo usuário em https://monitor.dlsistemas.com.br/historico.
 
 ---

@@ -7,7 +7,15 @@ Ordem definida pelo usuário em 2026-08-16. Fazer uma de cada vez, na ordem.
 ## 0. Alertas de load: flapping + aviso na subida + histórico de picos — ✅ CONCLUÍDA (2026-08-16)
 Implementada, revisada task a task, 322 testes passando, deployada em produção, e os dois scripts do host removidos com backup. Detalhes e medições em `PROGRESSO.md`.
 
+Inclui uma Task 8 extra, fora do plano original, autorizada após a revisão final: a regra "Container Parado" também passou a exigir janela sustentada (2 min), fechando ~64% de um ruído independente (425 alertas em 30 dias, 273 deles resolvidos em menos de 2 min — deploys, não incidentes).
+
 Resta só a verificação de 24h (contagem de alertas e ausência de alerta silencioso no `alert_log`) e a conferência visual da `/historico` pelo usuário.
+
+### Contexto necessário para a próxima tarefa (item 1, syscursos)
+Nada do trabalho de alertas acima é necessário. O que importa levar:
+- O degrau de RAM de 2026-08-13 14h UTC e a coincidência no minuto com o restart de `supabase-syscursos-realtime-1` (`2026-08-13T14:04:55Z`) — ver `PROGRESSO.md`.
+- Crescimento por container 13/08→15/08: `syscursos-kong` 522→704 MB, `syscursos-realtime` 130→228 MB, `syscursos-storage` 60→112 MB, `syscursos-db` 66→98 MB.
+- O usuário não consegue fazer login no syscursos.
 
 ---
 
